@@ -284,7 +284,11 @@ a.btn{display:inline-block;text-decoration:none}
       <p class="small">Google applique ses propres quotas et conditions à ces clés : vérifie-les sur AI Studio si tu dictes beaucoup.</p>
     </details>
     <label class="f" for="sModel">Modèle</label>
-    <input class="field" id="sModel" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="inline">
+      <input class="field" id="sModel" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn" id="modelFind">Détecter</button>
+    </div>
+    <p class="small">Si Google retire le modèle, l'appli en cherche un autre toute seule. « Détecter » force cette recherche.</p>
 
     <hr>
     <label class="f">Apparence</label>
@@ -315,7 +319,7 @@ a.btn{display:inline-block;text-decoration:none}
 'use strict';
 
 /* ───────── Constantes ───────── */
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3.8-flash';
 const MAX_SEC = 360;           // une prise ≈ 11 Mo en WAV 16 kHz : sous la limite d'envoi inline
 const TARGET_SR = 16000;
 const SECTIONS = ['synopsis', 'style', 'personnages', 'lieux', 'glossaire'];
@@ -672,28 +676,67 @@ function httpMsg(status, body) {
   return m || ('Erreur ' + status);
 }
 
+const API = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Cherche chez Google le Flash stable le plus récent disponible pour cette clé (les noms de modèles changent).
+async function findModel() {
+  try {
+    const r = await fetch(API + '/models?pageSize=200', { headers: { 'x-goog-api-key': S.apiKey.trim() } });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const list = (j.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => { const x = /^models\/(gemini-(\d+)(?:\.(\d+))?-flash(-lite)?)$/.exec(m.name || ''); return x && { id: x[1], maj: +x[2], min: +(x[3] || 0), lite: !!x[4] }; })
+      .filter(Boolean)
+      .sort((a, b) => (a.lite - b.lite) || (b.maj - a.maj) || (b.min - a.min));
+    return list.length ? list[0].id : null;
+  } catch (_) { return null; }
+}
+
 async function gemini({ system, parts, schema, temperature = 0.3, json = true, think = null }) {
   const fail = msg => { const e = new Error(msg); e.userMsg = msg; return e; };
   if (!S.apiKey.trim()) throw fail('Ajoute ta clé API Gemini dans Réglages.');
-  const model = (S.model || DEFAULT_MODEL).trim();
-  const gc = { temperature };
-  if (json) { gc.responseMimeType = 'application/json'; gc.responseSchema = schema; }
-  if (think !== null && /^gemini-2\.5-flash(?!-lite)/.test(model)) gc.thinkingConfig = { thinkingBudget: think };
-  const body = { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: gc };
+  let model = (S.model || DEFAULT_MODEL).trim();
+  const makeBody = (withThink) => {
+    const gc = {};
+    if (!/^gemini-3/.test(model)) gc.temperature = temperature;   // Gemini 3 : température laissée par défaut (recommandation de Google)
+    if (json) { gc.responseMimeType = 'application/json'; gc.responseSchema = schema; }
+    if (withThink && think !== null) {
+      if (/^gemini-2\.5-flash(?!-lite)/.test(model)) gc.thinkingConfig = { thinkingBudget: think };
+      else if (/^gemini-3/.test(model) && think === 0) gc.thinkingConfig = { thinkingLevel: 'low' };
+    }
+    return { body: { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: gc }, thinking: !!gc.thinkingConfig };
+  };
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), 150000);
-  let res;
+  const send = async withThink => {
+    const { body, thinking } = makeBody(withThink);
+    let res;
+    try {
+      res = await fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': S.apiKey.trim() },
+        body: JSON.stringify(body), signal: ctl.signal
+      });
+    } catch (err) {
+      throw fail(err && err.name === 'AbortError' ? 'Délai dépassé.' : 'Pas de connexion à Gemini.');
+    }
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    return { res, data, thinking };
+  };
+  let res, data;
   try {
-    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': S.apiKey.trim() },
-      body: JSON.stringify(body), signal: ctl.signal
-    });
-  } catch (err) {
-    throw fail(err && err.name === 'AbortError' ? 'Délai dépassé.' : 'Pas de connexion à Gemini.');
+    let r = await send(true);
+    // Réglage de réflexion refusé par ce modèle : on réessaie sans.
+    if (r.res.status === 400 && r.thinking && !/API key/i.test((r.data && r.data.error && r.data.error.message) || '')) r = await send(false);
+    // Modèle retiré ou inaccessible : on cherche automatiquement le bon.
+    if (r.res.status === 404) {
+      const alt = await findModel();
+      if (alt && alt !== model) { model = alt; S.model = alt; save(); r = await send(true); if (r.res.status === 400 && r.thinking) r = await send(false); }
+    }
+    ({ res, data } = r);
   } finally { clearTimeout(to); }
-  let data = null;
-  try { data = await res.json(); } catch (_) {}
   if (!res.ok) throw fail(httpMsg(res.status, data));
   const cand = data && data.candidates && data.candidates[0];
   const txt = ((cand && cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
@@ -1072,6 +1115,14 @@ $('#themes').addEventListener('click', e => {
 });
 $('#sKey').addEventListener('input', e => { S.apiKey = e.target.value.trim(); updateHint(); save(); });
 $('#sModel').addEventListener('input', e => { S.model = e.target.value.trim() || DEFAULT_MODEL; save(); });
+$('#modelFind').addEventListener('click', async () => {
+  if (!S.apiKey.trim()) { note('Ajoute d’abord ta clé API.'); return; }
+  const b = $('#modelFind'); b.disabled = true; b.textContent = 'Recherche…';
+  const m = await findModel();
+  b.disabled = false; b.textContent = 'Détecter';
+  if (m) { S.model = m; $('#sModel').value = m; save(); note('Modèle choisi : ' + m); }
+  else note('Aucun modèle trouvé : vérifie ta clé API.', { sticky: true });
+});
 $('#keyShow').addEventListener('click', () => {
   const i = $('#sKey'), show = i.type === 'password'; i.type = show ? 'text' : 'password'; $('#keyShow').textContent = show ? 'Masquer' : 'Afficher';
 });
