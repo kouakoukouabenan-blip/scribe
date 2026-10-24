@@ -1,5 +1,5 @@
 // Service worker : l'appli s'ouvre hors ligne (l'IA, elle, a besoin du réseau).
-const V = 'scribe-v1';
+const V = 'scribe-v2';
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

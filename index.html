@@ -33,8 +33,13 @@ svg{display:block}
 #app{height:100dvh;display:flex;flex-direction:column;max-width:720px;margin:0 auto;padding-top:env(safe-area-inset-top)}
 
 /* En-tête */
-header{display:flex;align-items:center;justify-content:space-between;padding:6px 14px 6px 20px;min-height:48px}
-.title{background:none;border:0;color:var(--ink);font:500 15px var(--sans);letter-spacing:.01em;display:flex;gap:6px;align-items:center;padding:10px 0;max-width:72%}
+header{display:flex;align-items:center;justify-content:space-between;padding:4px 14px 2px 20px;min-height:58px}
+.crumbs{display:flex;flex-direction:column;align-items:flex-start;min-width:0;max-width:calc(100% - 56px)}
+.crumb-book{background:none;border:0;color:var(--muted);font:600 10.5px var(--sans);letter-spacing:.14em;text-transform:uppercase;display:flex;gap:6px;align-items:center;padding:6px 0 0;min-height:26px;max-width:100%;transition:color .2s}
+.crumb-book span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumb-book svg{flex:none;opacity:.7}
+.crumb-book:active{color:var(--ink)}
+.title{background:none;border:0;color:var(--ink);font:500 18px/1.2 var(--serif);display:flex;gap:6px;align-items:center;padding:2px 0 8px;max-width:100%}
 .title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .title svg{color:var(--muted);flex:none}
 .icon{position:relative;background:none;border:0;color:var(--ink);width:44px;height:44px;border-radius:50%;display:grid;place-items:center}
@@ -103,6 +108,23 @@ textarea.field{min-height:92px;resize:vertical}
 .inline .field{flex:1}
 hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
 
+/* Bibliothèque */
+#libList{list-style:none;margin:0;padding:0}
+.bk{position:relative;width:100%;display:flex;align-items:center;gap:14px;background:none;border:0;border-bottom:1px solid var(--line);padding:17px 4px 17px 16px;color:var(--ink);text-align:left}
+.bk::before{content:"";position:absolute;left:0;top:19px;bottom:19px;width:2px;border-radius:2px;background:transparent;transition:background .2s}
+.bk.on::before{background:var(--accent)}
+.bk:active{background:var(--soft)}
+.bk .txt{flex:1;min-width:0}
+.bk .t{display:block;font:500 20px/1.25 var(--serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk .m{display:block;margin-top:5px;font:400 12.5px var(--sans);color:var(--muted);font-variant-numeric:tabular-nums}
+.bk .go{flex:none;color:var(--line)}
+.bk.on .go{color:var(--accent)}
+.newbk{width:100%;display:flex;align-items:center;gap:12px;background:none;border:0;padding:18px 2px 6px;color:var(--muted);font:500 15px var(--sans);text-align:left}
+.newbk i{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;color:var(--ink)}
+.newbk:active{color:var(--ink)}
+.inline[hidden]{display:none}
+#newForm{margin-top:12px}
+
 #chList{list-style:none;margin:0 0 6px;padding:0}
 .row{width:100%;display:flex;align-items:baseline;gap:12px;background:none;border:0;border-bottom:1px solid var(--line);padding:13px 2px;color:var(--ink);font:400 16px var(--sans);text-align:left}
 .row .n{color:var(--muted);width:22px;font-size:13px;font-variant-numeric:tabular-nums}
@@ -115,10 +137,16 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
 <body data-mode="dicter" data-state="idle">
 <div id="app">
   <header>
-    <button class="title" id="btnChapters" aria-label="Chapitres">
-      <span id="chTitle">Chapitre 1</span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-    </button>
+    <div class="crumbs">
+      <button class="crumb-book" id="btnLibrary" aria-label="Changer de livre">
+        <span id="bookTitle">Mon roman</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+      </button>
+      <button class="title" id="btnChapters" aria-label="Chapitres">
+        <span id="chTitle">Chapitre 1</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
     <button class="icon" id="btnBook" aria-label="Univers et réglages">
       <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/></svg>
       <i class="dot" id="backupDot" hidden></i>
@@ -148,6 +176,21 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
   </footer>
 </div>
 
+<!-- Bibliothèque -->
+<dialog class="sheet" id="dlgLibrary"><div class="in">
+  <div class="sheet-h"><h2>Bibliothèque</h2><button class="x" data-close aria-label="Fermer">×</button></div>
+  <div class="dnote" hidden></div>
+  <ul id="libList"></ul>
+  <button class="newbk" id="newBtn" type="button">
+    <i><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></i>
+    <span>Nouveau livre</span>
+  </button>
+  <form id="newForm" class="inline" hidden>
+    <input class="field" id="newTitle" placeholder="Titre du livre" maxlength="80" autocomplete="off" enterkeyhint="done">
+    <button class="btn" type="submit">Créer</button>
+  </form>
+</div></dialog>
+
 <!-- Chapitres -->
 <dialog class="sheet" id="dlgChapters"><div class="in">
   <div class="sheet-h"><h2>Chapitres</h2><button class="x" data-close aria-label="Fermer">×</button></div>
@@ -176,11 +219,7 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
   <div class="dnote" hidden></div>
 
   <section class="pane" id="paneUnivers">
-    <div class="inline">
-      <select class="field" id="bookSel" aria-label="Livre"></select>
-      <button class="btn" id="bookNew">+</button>
-    </div>
-    <p class="small" id="bookStats"></p>
+    <p class="small" id="bookStats" style="margin-top:0"></p>
 
     <label class="f" for="fTitle">Titre</label>
     <input class="field" id="fTitle" autocomplete="off">
@@ -337,7 +376,7 @@ let state = 'idle', recMode = 'dicter', lastTake = null;
 const newChapter = title => ({ id: uid(), title, text: '', summary: '' });
 function newBook(title) {
   const ch = newChapter('Chapitre 1');
-  return { id: uid(), title: title || 'Mon roman', level: 'leger', current: ch.id, chapters: [ch],
+  return { id: uid(), title: title || 'Mon roman', level: 'leger', current: ch.id, chapters: [ch], updated: Date.now(),
     bible: { synopsis: '', style: '', personnages: '', lieux: '', glossaire: '' } };
 }
 function defaultState() {
@@ -360,9 +399,18 @@ const chap = () => { const b = book(); return b.chapters.find(c => c.id === b.cu
 const bookWords = b => b.chapters.reduce((n, c) => n + words(c.text), 0);
 
 let saveT;
+const sigs = new Map();   // empreinte du contenu de chaque livre, pour dater les vraies modifications
+function stampBook() {
+  const b = book(); if (!b) return;
+  const { updated, ...rest } = b;
+  const h = hashStr(JSON.stringify(rest));
+  if (sigs.has(b.id) && sigs.get(b.id) !== h) b.updated = Date.now();
+  sigs.set(b.id, h);
+}
 function save() { clearTimeout(saveT); saveT = setTimeout(flush, 500); }
 function flush() {
   clearTimeout(saveT);
+  stampBook();
   DB.set('state', S).catch(() => note('Sauvegarde locale impossible (espace plein ?). Exporte ton livre.', { sticky: true }));
 }
 const saveHist = () => DB.set('hist', H).catch(() => {});
@@ -650,7 +698,10 @@ async function processTake(blob, mode) {
 }
 async function retry() {
   const p = lastTake || await DB.get('pending').catch(() => null);
-  if (p && p.blob) { lastTake = p; processTake(p.blob, p.mode); } else note('Rien à relancer.');
+  if (p && p.blob) {
+    if (p.bookId && p.bookId !== S.bookId && S.books.some(b => b.id === p.bookId)) { flush(); S.bookId = p.bookId; save(); renderAll(); }
+    lastTake = p; processTake(p.blob, p.mode);
+  } else note('Rien à relancer.');
 }
 function discardTake() { lastTake = null; DB.del('pending').catch(() => {}); note('Prise supprimée.'); }
 
@@ -764,8 +815,10 @@ function renderAll() {
   const keep = editor.dataset.ch === chap().id; editor.dataset.ch = chap().id;
   renderEditor(keep);
   $('#chTitle').textContent = chap().title;
+  $('#bookTitle').textContent = book().title;
   updateWords(); updateUndo(); renderMode();
   $('#backupDot').hidden = !needsBackup();
+  if ($('#dlgLibrary').open) renderLibrary();
   if ($('#dlgChapters').open) renderChapters();
   if ($('#dlgBook').open) renderBook();
 }
@@ -793,7 +846,7 @@ async function stopRec(auto) {
   clearInterval(tickT); unlockScreen(); mic.style.removeProperty('--lvl');
   const out = Rec.end();
   if (out.dur < 0.7) { setState('idle'); note('Enregistrement trop court.'); return; }
-  lastTake = { blob: out.blob, mode: recMode, ts: Date.now() };
+  lastTake = { blob: out.blob, mode: recMode, ts: Date.now(), bookId: S.bookId };
   if (!DB.ls) DB.set('pending', lastTake).catch(() => {});
   if (auto) note('Durée maximale atteinte : la prise part au scribe. Tu pourras continuer ensuite.');
   await processTake(out.blob, recMode);
@@ -814,6 +867,60 @@ $$('dialog.sheet').forEach(d => {
   d.addEventListener('click', e => { if (e.target === d) d.close(); });
   d.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => d.close()));
   d.addEventListener('close', () => { flush(); renderAll(); });
+});
+
+/* Bibliothèque */
+const rtf = new Intl.RelativeTimeFormat('fr', { numeric: 'auto' });
+function ago(ts) {
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return 'à l’instant';
+  if (m < 60) return rtf.format(-m, 'minute');
+  const h = Math.round(m / 60);
+  if (h < 24) return rtf.format(-h, 'hour');
+  const d = Math.round(h / 24);
+  if (d < 7) return rtf.format(-d, 'day');
+  return new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+const SVG_CHECK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+const SVG_CHEV = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+function renderLibrary() {
+  const ul = $('#libList'); ul.innerHTML = '';
+  [...S.books].sort((a, b) => (b.updated || 0) - (a.updated || 0)).forEach(b => {
+    const on = b.id === S.bookId;
+    const li = document.createElement('li'), btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'bk' + (on ? ' on' : ''); btn.dataset.id = b.id;
+    if (on) btn.setAttribute('aria-current', 'true');
+    const txt = document.createElement('span'); txt.className = 'txt';
+    const t = document.createElement('span'); t.className = 't'; t.textContent = b.title;
+    const m = document.createElement('span'); m.className = 'm';
+    m.textContent = plural(bookWords(b), 'mot', 'mots') + ' · ' + plural(b.chapters.length, 'chapitre', 'chapitres') + (b.updated ? ' · ' + ago(b.updated) : '');
+    txt.append(t, m);
+    const go = document.createElement('span'); go.className = 'go'; go.innerHTML = on ? SVG_CHECK : SVG_CHEV;
+    btn.append(txt, go); li.append(btn); ul.append(li);
+  });
+}
+function canSwitch() {
+  if (state === 'idle') return true;
+  note('Laisse le scribe terminer avant de changer de livre.'); return false;
+}
+function switchBook(id) {
+  if (!canSwitch()) return false;
+  if (id !== S.bookId && S.books.some(b => b.id === id)) { flush(); S.bookId = id; hideNote(); save(); }
+  return true;
+}
+$('#btnLibrary').addEventListener('click', () => { flush(); renderLibrary(); $('#newForm').hidden = true; openSheet($('#dlgLibrary')); });
+$('#libList').addEventListener('click', e => {
+  const r = e.target.closest('.bk'); if (!r) return;
+  if (switchBook(r.dataset.id)) $('#dlgLibrary').close();
+});
+$('#newBtn').addEventListener('click', () => {
+  const f = $('#newForm'); f.hidden = !f.hidden;
+  if (!f.hidden) { $('#newTitle').value = ''; $('#newTitle').focus(); }
+});
+$('#newForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const t = $('#newTitle').value.trim(); if (!t || !canSwitch()) return;
+  const b = newBook(t); S.books.push(b); switchBook(b.id); $('#dlgLibrary').close();
 });
 
 /* Chapitres */
@@ -884,8 +991,7 @@ function setTab(t) {
   $('#paneUnivers').hidden = t !== 'univers'; $('#paneReglages').hidden = t !== 'reglages';
 }
 function renderBook() {
-  const b = book(), sel = $('#bookSel'); sel.innerHTML = '';
-  S.books.forEach(x => { const o = document.createElement('option'); o.value = x.id; o.textContent = x.title; o.selected = x.id === b.id; sel.append(o); });
+  const b = book();
   $('#bookStats').textContent = `${plural(bookWords(b), 'mot', 'mots')} · ${plural(b.chapters.length, 'chapitre', 'chapitres')}`;
   $('#fTitle').value = b.title;
   Object.entries(FIELDS).forEach(([id, k]) => { $('#' + id).value = b.bible[k]; });
@@ -898,11 +1004,6 @@ function renderBook() {
 }
 $('#btnBook').addEventListener('click', () => openBook('univers'));
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
-$('#bookSel').addEventListener('change', e => { S.bookId = e.target.value; save(); renderAll(); renderBook(); });
-$('#bookNew').addEventListener('click', () => {
-  const t = prompt('Titre du nouveau livre', 'Nouveau roman'); if (!t || !t.trim()) return;
-  const b = newBook(t.trim()); S.books.push(b); S.bookId = b.id; save(); renderAll(); renderBook();
-});
 $('#bookDelete').addEventListener('click', () => {
   const b = book();
   if (!confirm(`Supprimer définitivement « ${b.title} » (${plural(bookWords(b), 'mot', 'mots')}) ? Cette action ne peut pas être annulée. Pense à exporter d'abord.`)) return;
@@ -958,7 +1059,7 @@ $('#imFile').addEventListener('change', async e => {
     if (j.app !== 'scribe' || !j.state || !Array.isArray(j.state.books) || !j.state.books.length) throw new Error();
     if (!confirm('Remplacer tout le contenu actuel par cette sauvegarde ?')) return;
     const keep = { apiKey: S.apiKey, model: S.model };
-    S = j.state; S.apiKey = keep.apiKey; S.model = keep.model; H = {}; saveHist(); normalize(); flush(); renderAll(); renderBook();
+    S = j.state; S.apiKey = keep.apiKey; S.model = keep.model; H = {}; sigs.clear(); saveHist(); normalize(); flush(); renderAll(); renderBook();
     note('Sauvegarde restaurée.');
   } catch (_) { note('Fichier de sauvegarde invalide.', { sticky: true }); }
 });
@@ -986,7 +1087,7 @@ window.addEventListener('pagehide', flush);
   if (p && p.blob) { lastTake = p; note('Une prise n’avait pas été traitée.', { sticky: true, actions: [{ label: 'Traiter', fn: retry }, { label: 'Jeter', fn: discardTake }] }); }
   else if (needsBackup()) note('Pense à exporter une sauvegarde de ton livre.', { actions: [{ label: 'Exporter', fn: () => openBook('reglages') }], ms: 9000 });
   // Accès de test (console) — sans effet pour l'utilisateur
-  window.__scribe = { get S() { return S; }, applyOps, onDictation, undo, joinDictation, buildContext, buildSystem, splitParas, book, chap };
+  window.__scribe = { get S() { return S; }, switchBook, newBook, applyOps, onDictation, undo, joinDictation, buildContext, buildSystem, splitParas, book, chap };
 })();
 })();
 </script>
