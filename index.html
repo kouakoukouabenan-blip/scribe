@@ -4,8 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Scribe</title>
-<meta name="theme-color" content="#f6f2ea" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14120f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" id="metaTheme" content="#f6f2ea">
+<script>
+// Applique le thème choisi avant le premier affichage (évite le flash clair/sombre).
+(function(){try{var t=localStorage.getItem('scribe-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;
+var d=t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);
+document.getElementById('metaTheme').setAttribute('content',d?'#14120f':'#f6f2ea');}catch(e){}})();
+</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -21,8 +26,10 @@
   color-scheme:light dark;
 }
 @media (prefers-color-scheme:dark){
-  :root{--bg:#14120f;--ink:#ece5d8;--muted:#8f877a;--line:#2a2620;--card:#1c1915;--soft:rgba(236,229,216,.08);--accent:#d9774a;--accent-ink:#14120f;--danger:#e0705f}
+  :root:not([data-theme]){--bg:#14120f;--ink:#ece5d8;--muted:#8f877a;--line:#2a2620;--card:#1c1915;--soft:rgba(236,229,216,.08);--accent:#d9774a;--accent-ink:#14120f;--danger:#e0705f}
 }
+:root[data-theme=dark]{--bg:#14120f;--ink:#ece5d8;--muted:#8f877a;--line:#2a2620;--card:#1c1915;--soft:rgba(236,229,216,.08);--accent:#d9774a;--accent-ink:#14120f;--danger:#e0705f;color-scheme:dark}
+:root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);overscroll-behavior:none;-webkit-font-smoothing:antialiased}
@@ -123,6 +130,15 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
 .newbk i{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;color:var(--ink)}
 .newbk:active{color:var(--ink)}
 .inline[hidden]{display:none}
+a.btn{display:inline-block;text-decoration:none}
+.how{margin-top:12px;font-size:13.5px;line-height:1.55;color:var(--muted)}
+.how summary{cursor:pointer;color:var(--ink);font:500 14px var(--sans);padding:6px 0;list-style:none}
+.how summary::-webkit-details-marker{display:none}
+.how summary::after{content:" ›";color:var(--muted)}
+.how[open] summary::after{content:" ⌄"}
+.how ol{margin:6px 0 0;padding-left:20px}
+.how li{margin:0 0 7px}
+.how b{color:var(--ink);font-weight:600}
 #newForm{margin-top:12px}
 
 #chList{list-style:none;margin:0 0 6px;padding:0}
@@ -252,10 +268,32 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
       <input class="field" id="sKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza…">
       <button class="btn" id="keyShow">Afficher</button>
     </div>
-    <p class="small">Elle reste sur ce téléphone et n'est envoyée qu'à Google. Elle se crée dans Google AI Studio.</p>
+    <p class="small">Elle reste sur ce téléphone et n'est envoyée qu'à Google. Ne la partage avec personne.</p>
+    <div class="btns">
+      <a class="btn" id="keyLink" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Obtenir une clé ↗</a>
+      <button class="btn" id="keyTest">Tester la connexion</button>
+    </div>
+    <details class="how">
+      <summary>Comment obtenir une clé</summary>
+      <ol>
+        <li>Touche <b>Obtenir une clé</b> : Google AI Studio s'ouvre. Connecte-toi avec ton compte Google.</li>
+        <li>Touche <b>Create API key</b> (« Créer une clé API »). Si Google demande un projet, choisis-en un ou laisse-le en créer un.</li>
+        <li>Touche la clé pour la copier : elle commence par <b>AIza</b>.</li>
+        <li>Reviens ici, colle-la dans le champ « Clé API Gemini », puis touche <b>Tester la connexion</b>.</li>
+      </ol>
+      <p class="small">Google applique ses propres quotas et conditions à ces clés : vérifie-les sur AI Studio si tu dictes beaucoup.</p>
+    </details>
     <label class="f" for="sModel">Modèle</label>
     <input class="field" id="sModel" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <div class="btns"><button class="btn" id="keyTest">Tester la connexion</button></div>
+
+    <hr>
+    <label class="f">Apparence</label>
+    <div class="seg full" id="themes">
+      <button data-theme="auto">Auto</button>
+      <button data-theme="light">Clair</button>
+      <button data-theme="dark">Sombre</button>
+    </div>
+    <p class="small">« Auto » suit le réglage de ton téléphone.</p>
 
     <hr>
     <label class="f">Sauvegarde</label>
@@ -381,9 +419,10 @@ function newBook(title) {
 }
 function defaultState() {
   const b = newBook();
-  return { v: 1, apiKey: '', model: DEFAULT_MODEL, mode: 'dicter', books: [b], bookId: b.id, lastExport: 0 };
+  return { v: 1, apiKey: '', model: DEFAULT_MODEL, mode: 'dicter', theme: 'auto', books: [b], bookId: b.id, lastExport: 0 };
 }
 function normalize() {
+  S.theme = ['auto', 'light', 'dark'].includes(S.theme) ? S.theme : 'auto';
   S.model = S.model || DEFAULT_MODEL; S.mode = S.mode || 'dicter'; S.apiKey = S.apiKey || ''; S.lastExport = S.lastExport || 0;
   S.books.forEach(b => {
     b.bible = b.bible || {}; SECTIONS.forEach(k => { b.bible[k] = b.bible[k] || ''; });
@@ -792,6 +831,7 @@ function updateHint(sec) {
   const h = $('#hint');
   if (state === 'rec') { const s = Math.floor(sec || 0); h.textContent = `● ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')} · touche pour terminer`; }
   else if (state === 'busy') h.textContent = S.mode === 'dicter' ? 'Le scribe écrit…' : 'Le scribe réfléchit…';
+  else if (!S.apiKey.trim()) h.textContent = 'Ajoute ta clé API dans Réglages pour commencer';
   else h.textContent = S.mode === 'dicter' ? 'Touche pour dicter' : 'Touche, puis donne ta consigne';
 }
 function setState(st) {
@@ -998,6 +1038,7 @@ function renderBook() {
   $$('#levels button').forEach(x => x.classList.toggle('on', x.dataset.level === b.level));
   $('#levelDesc').textContent = LEVELS[b.level].desc;
   $('#sKey').value = S.apiKey; $('#sModel').value = S.model;
+  $$('#themes button').forEach(x => x.classList.toggle('on', x.dataset.theme === S.theme));
   $('#lastExport').textContent = S.lastExport
     ? 'Dernière sauvegarde exportée : ' + new Date(S.lastExport).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) + '.'
     : 'Aucune sauvegarde exportée pour l’instant.';
@@ -1017,7 +1058,19 @@ $('#levels').addEventListener('click', e => {
   const b = e.target.closest('button[data-level]'); if (!b) return;
   book().level = b.dataset.level; save(); renderBook();
 });
-$('#sKey').addEventListener('input', e => { S.apiKey = e.target.value.trim(); save(); });
+const dq = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+  const t = S.theme, root = document.documentElement;
+  if (t === 'light' || t === 'dark') root.dataset.theme = t; else delete root.dataset.theme;
+  try { localStorage.setItem('scribe-theme', t); } catch (_) {}
+  $('#metaTheme').setAttribute('content', t === 'dark' || (t === 'auto' && dq.matches) ? '#14120f' : '#f6f2ea');
+}
+if (dq.addEventListener) dq.addEventListener('change', () => { if (S && S.theme === 'auto') applyTheme(); });
+$('#themes').addEventListener('click', e => {
+  const b = e.target.closest('button[data-theme]'); if (!b) return;
+  S.theme = b.dataset.theme; applyTheme(); save(); renderBook();
+});
+$('#sKey').addEventListener('input', e => { S.apiKey = e.target.value.trim(); updateHint(); save(); });
 $('#sModel').addEventListener('input', e => { S.model = e.target.value.trim() || DEFAULT_MODEL; save(); });
 $('#keyShow').addEventListener('click', () => {
   const i = $('#sKey'), show = i.type === 'password'; i.type = show ? 'text' : 'password'; $('#keyShow').textContent = show ? 'Masquer' : 'Afficher';
@@ -1058,8 +1111,8 @@ $('#imFile').addEventListener('change', async e => {
     const j = JSON.parse(await f.text());
     if (j.app !== 'scribe' || !j.state || !Array.isArray(j.state.books) || !j.state.books.length) throw new Error();
     if (!confirm('Remplacer tout le contenu actuel par cette sauvegarde ?')) return;
-    const keep = { apiKey: S.apiKey, model: S.model };
-    S = j.state; S.apiKey = keep.apiKey; S.model = keep.model; H = {}; sigs.clear(); saveHist(); normalize(); flush(); renderAll(); renderBook();
+    const keep = { apiKey: S.apiKey, model: S.model, theme: S.theme };
+    S = j.state; S.apiKey = keep.apiKey; S.model = keep.model; S.theme = keep.theme; H = {}; sigs.clear(); saveHist(); normalize(); flush(); renderAll(); renderBook();
     note('Sauvegarde restaurée.');
   } catch (_) { note('Fichier de sauvegarde invalide.', { sticky: true }); }
 });
@@ -1079,7 +1132,7 @@ window.addEventListener('pagehide', flush);
   const st = await DB.get('state').catch(() => null);
   H = (await DB.get('hist').catch(() => null)) || {};
   S = st && Array.isArray(st.books) && st.books.length ? st : defaultState();
-  normalize();
+  normalize(); applyTheme();
   setState('idle'); renderAll();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
