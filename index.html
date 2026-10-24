@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Scribe</title>
+<meta name="theme-color" content="#f6f2ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14120f" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scribe">
+<style>
+:root{
+  --bg:#f6f2ea; --ink:#1f1c18; --muted:#8a8378; --line:#e3dccf; --card:#fffdf8; --soft:rgba(31,28,24,.06);
+  --accent:#b4532a; --accent-ink:#fffaf3; --danger:#a63a2b;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#14120f;--ink:#ece5d8;--muted:#8f877a;--line:#2a2620;--card:#1c1915;--soft:rgba(236,229,216,.08);--accent:#d9774a;--accent-ink:#14120f;--danger:#e0705f}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);overscroll-behavior:none;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+button:disabled{cursor:default}
+svg{display:block}
+
+#app{height:100dvh;display:flex;flex-direction:column;max-width:720px;margin:0 auto;padding-top:env(safe-area-inset-top)}
+
+/* En-tête */
+header{display:flex;align-items:center;justify-content:space-between;padding:6px 14px 6px 20px;min-height:48px}
+.title{background:none;border:0;color:var(--ink);font:500 15px var(--sans);letter-spacing:.01em;display:flex;gap:6px;align-items:center;padding:10px 0;max-width:72%}
+.title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.title svg{color:var(--muted);flex:none}
+.icon{position:relative;background:none;border:0;color:var(--ink);width:44px;height:44px;border-radius:50%;display:grid;place-items:center}
+.icon:active{background:var(--soft)}
+.icon:disabled{opacity:.28}
+.dot{position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
+
+/* Manuscrit */
+main{flex:1;min-height:0;position:relative}
+#editor{position:absolute;inset:0;width:100%;height:100%;border:0;outline:0;resize:none;background:transparent;color:var(--ink);
+  font:400 19px/1.75 var(--serif);padding:8px 22px 48px;-webkit-overflow-scrolling:touch}
+#editor::placeholder{color:var(--muted);font-style:italic}
+main::after{content:"";position:absolute;left:0;right:0;bottom:0;height:34px;background:linear-gradient(transparent,var(--bg));pointer-events:none}
+
+/* Pied : pilule de mode + micro */
+footer{position:relative;padding:4px 18px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:10px}
+#hint{font-size:13px;color:var(--muted);min-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums}
+body[data-state=rec] #hint{color:var(--accent)}
+.seg{display:flex;background:var(--soft);border-radius:999px;padding:3px}
+.seg button{border:0;background:none;color:var(--muted);font:500 14px var(--sans);padding:7px 18px;border-radius:999px;transition:background .2s,color .2s}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg button:disabled{opacity:.55}
+.dock{width:100%;display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
+.dock .l{font-size:13px;color:var(--muted);justify-self:start;font-variant-numeric:tabular-nums}
+.dock .r{justify-self:end}
+#mic{width:72px;height:72px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);display:grid;place-items:center;position:relative;transition:background .25s,transform .15s}
+body[data-mode=consigne] #mic{background:var(--accent);color:var(--accent-ink)}
+#mic:active{transform:scale(.96)}
+#mic::before{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;opacity:.2;transform:scale(1);transition:transform .1s linear;display:none}
+body[data-state=rec] #mic::before{display:block;transform:scale(calc(1 + var(--lvl,0) * .55))}
+body[data-state=busy] #mic{opacity:.7}
+.spin{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Note flottante */
+#note{position:absolute;left:14px;right:14px;bottom:100%;margin-bottom:2px;z-index:5;background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:10px 14px;font-size:14px;line-height:1.4;display:flex;gap:14px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,.1);animation:rise .2s ease-out}
+#note[hidden],.dnote[hidden]{display:none}
+#note span,.dnote span{flex:1}
+#note button,.dnote button{background:none;border:0;color:var(--accent);font:600 14px var(--sans);padding:4px 2px;white-space:nowrap}
+.dnote{position:sticky;top:0;z-index:3;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:0 0 12px;font-size:14px;line-height:1.4;display:flex;gap:14px;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+@keyframes rise{from{transform:translateY(6px);opacity:0}}
+
+/* Feuilles */
+dialog.sheet{border:0;padding:0;margin:auto auto 0;width:100%;max-width:720px;max-height:90dvh;border-radius:22px 22px 0 0;background:var(--bg);color:var(--ink);box-shadow:0 -10px 40px rgba(0,0,0,.25)}
+dialog.sheet::backdrop{background:rgba(20,16,10,.45)}
+dialog.sheet[open]{animation:up .22s ease-out}
+@keyframes up{from{transform:translateY(28px);opacity:0}}
+.in{padding:16px 20px calc(26px + env(safe-area-inset-bottom));overflow:auto;max-height:90dvh;-webkit-overflow-scrolling:touch}
+.sheet h2{font:600 17px var(--sans);margin:0}
+.sheet-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.x{background:none;border:0;color:var(--muted);font-size:24px;line-height:1;padding:4px 8px;margin-right:-8px}
+label.f{display:block;margin:18px 0 6px;font:600 11.5px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.field{width:100%;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:12px;padding:11px 13px;font:400 16px/1.45 var(--sans);outline:none}
+textarea.field{min-height:92px;resize:vertical}
+.field:focus{border-color:var(--accent)}
+.small{font-size:13px;color:var(--muted);line-height:1.5;margin:8px 0 0}
+.btn{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:12px;padding:10px 14px;font:500 14px var(--sans)}
+.btn:active{background:var(--soft)}
+.btn.danger{color:var(--danger)}
+.btn[hidden]{display:none}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.seg.full{display:flex}
+.seg.full button{flex:1;padding:9px 6px}
+.inline{display:flex;gap:8px;align-items:center}
+.inline .field{flex:1}
+hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
+
+#chList{list-style:none;margin:0 0 6px;padding:0}
+.row{width:100%;display:flex;align-items:baseline;gap:12px;background:none;border:0;border-bottom:1px solid var(--line);padding:13px 2px;color:var(--ink);font:400 16px var(--sans);text-align:left}
+.row .n{color:var(--muted);width:22px;font-size:13px;font-variant-numeric:tabular-nums}
+.row .t{flex:1;font-family:var(--serif);font-size:17px}
+.row .w{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.row.on .t{color:var(--accent);font-weight:600}
+.pane[hidden]{display:none}
+</style>
+</head>
+<body data-mode="dicter" data-state="idle">
+<div id="app">
+  <header>
+    <button class="title" id="btnChapters" aria-label="Chapitres">
+      <span id="chTitle">Chapitre 1</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <button class="icon" id="btnBook" aria-label="Univers et réglages">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/></svg>
+      <i class="dot" id="backupDot" hidden></i>
+    </button>
+  </header>
+
+  <main>
+    <textarea id="editor" placeholder="Le chapitre commence ici…" spellcheck="true" lang="fr" autocapitalize="sentences"></textarea>
+  </main>
+
+  <footer>
+    <div id="note" hidden></div>
+    <div id="hint"></div>
+    <div class="seg" id="modes">
+      <button data-mode="dicter" class="on">Dicter</button>
+      <button data-mode="consigne">Consigne</button>
+    </div>
+    <div class="dock">
+      <div class="l" id="words">0 mot</div>
+      <button id="mic" aria-label="Enregistrer"></button>
+      <div class="r">
+        <button class="icon" id="btnUndo" aria-label="Annuler la dernière action du scribe" disabled>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        </button>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<!-- Chapitres -->
+<dialog class="sheet" id="dlgChapters"><div class="in">
+  <div class="sheet-h"><h2>Chapitres</h2><button class="x" data-close aria-label="Fermer">×</button></div>
+  <div class="dnote" hidden></div>
+  <ul id="chList"></ul>
+  <div class="btns">
+    <button class="btn" id="chNew">+ Nouveau chapitre</button>
+  </div>
+  <label class="f" for="chSummary">Résumé · mémoire du scribe</label>
+  <textarea class="field" id="chSummary" placeholder="Quelques lignes sur ce qui se passe dans ce chapitre. Le scribe s'en sert pour garder la continuité."></textarea>
+  <div class="btns">
+    <button class="btn" id="chSummarize">Résumer avec l'IA</button>
+    <button class="btn" id="chRename">Renommer</button>
+    <button class="btn" id="chUp" aria-label="Monter">↑</button>
+    <button class="btn" id="chDown" aria-label="Descendre">↓</button>
+    <button class="btn danger" id="chDelete">Supprimer</button>
+  </div>
+</div></dialog>
+
+<!-- Univers & réglages -->
+<dialog class="sheet" id="dlgBook"><div class="in">
+  <div class="sheet-h">
+    <div class="seg" id="tabs"><button data-tab="univers" class="on">Univers</button><button data-tab="reglages">Réglages</button></div>
+    <button class="x" data-close aria-label="Fermer">×</button>
+  </div>
+  <div class="dnote" hidden></div>
+
+  <section class="pane" id="paneUnivers">
+    <div class="inline">
+      <select class="field" id="bookSel" aria-label="Livre"></select>
+      <button class="btn" id="bookNew">+</button>
+    </div>
+    <p class="small" id="bookStats"></p>
+
+    <label class="f" for="fTitle">Titre</label>
+    <input class="field" id="fTitle" autocomplete="off">
+
+    <label class="f">Intervention du scribe en dictée</label>
+    <div class="seg full" id="levels">
+      <button data-level="fidele">Fidèle</button>
+      <button data-level="leger">Léger</button>
+      <button data-level="reecriture">Réécriture</button>
+    </div>
+    <p class="small" id="levelDesc"></p>
+
+    <label class="f" for="fStyle">Ton &amp; style</label>
+    <textarea class="field" id="fStyle" placeholder="Ex. : 3e personne, passé simple, phrases sèches. Dialogues introduits par un tiret cadratin."></textarea>
+    <label class="f" for="fSynopsis">Synopsis</label>
+    <textarea class="field" id="fSynopsis" placeholder="L'intrigue en quelques lignes, ce qui doit rester cohérent."></textarea>
+    <label class="f" for="fPersonnages">Personnages</label>
+    <textarea class="field" id="fPersonnages" placeholder="Un personnage par ligne : nom, âge, traits, relations, tics de langage…"></textarea>
+    <label class="f" for="fLieux">Lieux</label>
+    <textarea class="field" id="fLieux"></textarea>
+    <label class="f" for="fGlossaire">Glossaire</label>
+    <textarea class="field" id="fGlossaire" placeholder="Noms propres, mots en agni ou dans d'autres langues : l'orthographe exacte que le scribe doit respecter."></textarea>
+    <p class="small">En mode Consigne, tu peux aussi dire : « Note que Aya a une cicatrice à la main gauche », et le scribe l'ajoute ici.</p>
+    <div class="btns"><button class="btn danger" id="bookDelete">Supprimer ce livre</button></div>
+  </section>
+
+  <section class="pane" id="paneReglages" hidden>
+    <label class="f" for="sKey">Clé API Gemini</label>
+    <div class="inline">
+      <input class="field" id="sKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza…">
+      <button class="btn" id="keyShow">Afficher</button>
+    </div>
+    <p class="small">Elle reste sur ce téléphone et n'est envoyée qu'à Google. Elle se crée dans Google AI Studio.</p>
+    <label class="f" for="sModel">Modèle</label>
+    <input class="field" id="sModel" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="btns"><button class="btn" id="keyTest">Tester la connexion</button></div>
+
+    <hr>
+    <label class="f">Sauvegarde</label>
+    <div class="btns" style="margin-top:0">
+      <button class="btn" id="exMd">Livre en .md</button>
+      <button class="btn" id="exJson">Sauvegarde complète .json</button>
+      <button class="btn" id="exCopy">Copier le chapitre</button>
+      <button class="btn" id="imJson">Restaurer une sauvegarde</button>
+    </div>
+    <input type="file" id="imFile" accept=".json,application/json" hidden>
+    <p class="small" id="lastExport"></p>
+    <p class="small">Ton texte vit dans la mémoire de ce navigateur. Exporte régulièrement : si les données du navigateur sont effacées, il n'y a pas d'autre copie.</p>
+    <div class="btns"><button class="btn" id="btnInstall" hidden>Installer l'application</button></div>
+  </section>
+</div></dialog>
+
+<script>
+(() => {
+'use strict';
+
+/* ───────── Constantes ───────── */
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const MAX_SEC = 360;           // une prise ≈ 11 Mo en WAV 16 kHz : sous la limite d'envoi inline
+const TARGET_SR = 16000;
+const SECTIONS = ['synopsis', 'style', 'personnages', 'lieux', 'glossaire'];
+const LEVELS = {
+  fidele: {
+    desc: 'Transcription mot à mot, avec ponctuation. Seules les hésitations sonores (« euh ») disparaissent.',
+    prompt: 'FIDÈLE : transcris mot à mot, avec ponctuation, majuscules et paragraphes. Ne retire que les hésitations purement sonores (euh, hum). Ne reformule rien.'
+  },
+  leger: {
+    desc: 'Retire hésitations, faux départs et auto-corrections. Garde ton vocabulaire et ton rythme.',
+    prompt: 'LÉGER : retire hésitations, faux départs et répétitions involontaires ; applique les auto-corrections (« non, plutôt… », « ou plutôt… ») en ne gardant que la version finale ; corrige la syntaxe orale évidente et la ponctuation. Ne reformule pas : garde le vocabulaire, le rythme et la voix de l’auteur.'
+  },
+  reecriture: {
+    desc: 'Améliore la fluidité à l\'écrit à partir de ce que tu dis, sans changer le sens ni la voix.',
+    prompt: 'RÉÉCRITURE : améliore la fluidité et la précision du style écrit à partir de ce qui est dit, sans changer le sens, les faits ni la voix de l’auteur. N’ajoute aucun événement, aucune information.'
+  }
+};
+
+const SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    text: { type: 'STRING', description: 'MODE DICTÉE : le texte à écrire. MODE CONSIGNE : chaîne vide.' },
+    continues_previous: { type: 'BOOLEAN', description: 'MODE DICTÉE : true si le texte prolonge directement la phrase ou le paragraphe inachevé qui termine le chapitre.' },
+    operations: {
+      type: 'ARRAY',
+      description: 'MODE CONSIGNE : opérations à appliquer dans l’ordre. MODE DICTÉE : tableau vide.',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          type: { type: 'STRING', description: 'append | insert_after | replace | delete | bible | new_chapter | rename_chapter' },
+          paragraph: { type: 'INTEGER', nullable: true, description: 'Numéro du paragraphe visé (numérotation d’origine).' },
+          section: { type: 'STRING', nullable: true, description: 'Pour "bible" : synopsis | style | personnages | lieux | glossaire' },
+          text: { type: 'STRING', nullable: true }
+        },
+        required: ['type']
+      }
+    },
+    reply: { type: 'STRING', nullable: true, description: 'Réponse courte à l’auteur (question, doute, contradiction détectée). Sinon null.' }
+  },
+  required: ['text', 'continues_previous', 'operations']
+};
+
+/* ───────── Utilitaires ───────── */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const uid = () => Math.random().toString(36).slice(2, 10);
+const fr = n => n.toLocaleString('fr-FR');
+const words = s => { s = (s || '').trim(); return s ? s.split(/\s+/).length : 0; };
+const plural = (n, a, b) => `${fr(n)} ${n > 1 ? b : a}`;
+const splitParas = t => (t || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+const hashStr = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return h; };
+const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ───────── Stockage (IndexedDB, repli localStorage) ───────── */
+const DB = {
+  db: null, ls: false,
+  open() {
+    return new Promise((ok, ko) => {
+      if (!window.indexedDB) return ko();
+      const r = indexedDB.open('scribe', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => { this.db = r.result; ok(); };
+      r.onerror = () => ko(r.error);
+      r.onblocked = () => ko();
+    });
+  },
+  get(k) {
+    if (this.ls) return Promise.resolve(JSON.parse(localStorage.getItem('scribe:' + k) || 'null'));
+    return new Promise((ok, ko) => {
+      const q = this.db.transaction('kv').objectStore('kv').get(k);
+      q.onsuccess = () => ok(q.result); q.onerror = () => ko(q.error);
+    });
+  },
+  set(k, v) {
+    if (this.ls) { try { localStorage.setItem('scribe:' + k, JSON.stringify(v)); return Promise.resolve(); } catch (e) { return Promise.reject(e); } }
+    return new Promise((ok, ko) => {
+      const t = this.db.transaction('kv', 'readwrite');
+      t.objectStore('kv').put(v, k);
+      t.oncomplete = () => ok(); t.onerror = () => ko(t.error); t.onabort = () => ko(t.error);
+    });
+  },
+  del(k) {
+    if (this.ls) { localStorage.removeItem('scribe:' + k); return Promise.resolve(); }
+    return new Promise((ok, ko) => {
+      const t = this.db.transaction('kv', 'readwrite');
+      t.objectStore('kv').delete(k);
+      t.oncomplete = () => ok(); t.onerror = () => ko(t.error);
+    });
+  }
+};
+
+/* ───────── État ───────── */
+let S, H = {};   // S : état persistant · H : historique d'annulation par livre
+let state = 'idle', recMode = 'dicter', lastTake = null;
+
+const newChapter = title => ({ id: uid(), title, text: '', summary: '' });
+function newBook(title) {
+  const ch = newChapter('Chapitre 1');
+  return { id: uid(), title: title || 'Mon roman', level: 'leger', current: ch.id, chapters: [ch],
+    bible: { synopsis: '', style: '', personnages: '', lieux: '', glossaire: '' } };
+}
+function defaultState() {
+  const b = newBook();
+  return { v: 1, apiKey: '', model: DEFAULT_MODEL, mode: 'dicter', books: [b], bookId: b.id, lastExport: 0 };
+}
+function normalize() {
+  S.model = S.model || DEFAULT_MODEL; S.mode = S.mode || 'dicter'; S.apiKey = S.apiKey || ''; S.lastExport = S.lastExport || 0;
+  S.books.forEach(b => {
+    b.bible = b.bible || {}; SECTIONS.forEach(k => { b.bible[k] = b.bible[k] || ''; });
+    b.level = LEVELS[b.level] ? b.level : 'leger';
+    if (!b.chapters || !b.chapters.length) b.chapters = [newChapter('Chapitre 1')];
+    b.chapters.forEach(c => { c.text = c.text || ''; c.summary = c.summary || ''; c.title = c.title || 'Sans titre'; });
+    if (!b.chapters.some(c => c.id === b.current)) b.current = b.chapters[0].id;
+  });
+  if (!S.books.some(b => b.id === S.bookId)) S.bookId = S.books[0].id;
+}
+const book = () => S.books.find(b => b.id === S.bookId);
+const chap = () => { const b = book(); return b.chapters.find(c => c.id === b.current) || b.chapters[0]; };
+const bookWords = b => b.chapters.reduce((n, c) => n + words(c.text), 0);
+
+let saveT;
+function save() { clearTimeout(saveT); saveT = setTimeout(flush, 500); }
+function flush() {
+  clearTimeout(saveT);
+  DB.set('state', S).catch(() => note('Sauvegarde locale impossible (espace plein ?). Exporte ton livre.', { sticky: true }));
+}
+const saveHist = () => DB.set('hist', H).catch(() => {});
+
+/* ───────── Historique d'annulation ───────── */
+const hashCh = c => hashStr(c.title + '\u0000' + c.text);
+function beginAct(label) { return { label, ts: Date.now(), cur: book().current, before: {}, after: {}, bible: null }; }
+function touch(act, ch) {
+  if (act.before[ch.id] !== undefined) return;
+  act.before[ch.id] = { title: ch.title, text: ch.text, summary: ch.summary, idx: book().chapters.indexOf(ch) };
+}
+function endAct(act) {
+  const b = book();
+  Object.keys(act.before).forEach(id => {
+    const ch = b.chapters.find(c => c.id === id);
+    act.after[id] = ch ? hashCh(ch) : null;
+  });
+  const list = (H[b.id] = H[b.id] || []);
+  list.push(act);
+  while (list.length > 20) list.shift();
+  saveHist(); updateUndo();
+}
+function undo() {
+  const b = book(), list = H[b.id] || [], act = list[list.length - 1];
+  if (!act) return;
+  const changed = Object.entries(act.after).some(([id, h]) => {
+    if (h === null) return false;
+    const ch = b.chapters.find(c => c.id === id);
+    return !ch || hashCh(ch) !== h;
+  });
+  if (changed && !confirm(`Du texte a été modifié à la main depuis « ${act.label} ». Annuler quand même ?`)) return;
+  list.pop();
+  Object.entries(act.before).forEach(([id, old]) => {
+    const i = b.chapters.findIndex(c => c.id === id);
+    if (old === null) { if (i >= 0) b.chapters.splice(i, 1); }
+    else if (i >= 0) Object.assign(b.chapters[i], { title: old.title, text: old.text, summary: old.summary });
+    else b.chapters.splice(Math.min(old.idx, b.chapters.length), 0, { id, title: old.title, text: old.text, summary: old.summary });
+  });
+  if (act.bible) b.bible = act.bible;
+  if (!b.chapters.length) b.chapters.push(newChapter('Chapitre 1'));
+  b.current = b.chapters.some(c => c.id === act.cur) ? act.cur : b.chapters[0].id;
+  save(); saveHist(); renderAll();
+  note('Annulé : ' + act.label);
+}
+
+/* ───────── Application des résultats de Gemini ───────── */
+function joinDictation(existing, add, continues) {
+  if (!existing.trim()) return add;
+  const base = existing.replace(/\s+$/, '');
+  const endsPara = /\n\s*$/.test(existing);
+  if (continues && !endsPara) return base + (/^[,.;:!?…)»]/.test(add) ? '' : ' ') + add;
+  return base + '\n\n' + add;
+}
+
+function onDictation(res, chId) {
+  const b = book(), ch = b.chapters.find(c => c.id === chId) || chap();
+  const add = String(res.text || '').trim();
+  if (!add) { note(res.reply || 'Rien d’exploitable dans cet enregistrement.'); return; }
+  const act = beginAct('dictée');
+  touch(act, ch);
+  ch.text = joinDictation(ch.text, add, !!res.continues_previous);
+  endAct(act);
+  save(); renderAll(); editor.scrollTop = editor.scrollHeight;
+  const msg = '+ ' + plural(words(add), 'mot', 'mots') + (res.reply ? ' · ' + res.reply : '');
+  note(msg, { actions: [{ label: 'Annuler', fn: undo }], ms: res.reply ? 12000 : 6000 });
+}
+
+function applyOps(ops, chId) {
+  const b = book();
+  const act = beginAct('consigne');
+  let target = b.chapters.find(c => c.id === chId) || chap();
+  const structs = new Map();
+  const getS = ch => {
+    touch(act, ch);
+    if (!structs.has(ch.id)) structs.set(ch.id, { ps: splitParas(ch.text).map(t => ({ t, after: [], del: false })), head: [], tail: [] });
+    return structs.get(ch.id);
+  };
+  let ok = 0, skip = 0, created = null;
+  for (const op of ops || []) {
+    const type = String(op.type || '');
+    const txt = String(op.text || '').trim();
+    const n = Number.isInteger(op.paragraph) ? op.paragraph : null;
+    switch (type) {
+      case 'append':
+        if (!txt) { skip++; break; }
+        getS(target).tail.push(txt); ok++; break;
+      case 'insert_after': {
+        if (!txt || n === null) { skip++; break; }
+        const s = getS(target);
+        if (n === 0) s.head.push(txt);
+        else if (s.ps[n - 1]) s.ps[n - 1].after.push(txt);
+        else { skip++; break; }
+        ok++; break;
+      }
+      case 'replace': {
+        if (!txt || n === null) { skip++; break; }
+        const s = getS(target);
+        if (!s.ps[n - 1]) { skip++; break; }
+        s.ps[n - 1].t = txt; ok++; break;
+      }
+      case 'delete': {
+        if (n === null) { skip++; break; }
+        const s = getS(target);
+        if (!s.ps[n - 1]) { skip++; break; }
+        s.ps[n - 1].del = true; ok++; break;
+      }
+      case 'bible': {
+        const sec = SECTIONS.includes(op.section) ? op.section : null;
+        if (!sec || !txt) { skip++; break; }
+        if (!act.bible) act.bible = clone(b.bible);
+        b.bible[sec] = (b.bible[sec] ? b.bible[sec].trim() + '\n' : '') + txt;
+        ok++; break;
+      }
+      case 'new_chapter': {
+        const ch = newChapter(txt || 'Nouveau chapitre');
+        b.chapters.splice(b.chapters.indexOf(target) + 1, 0, ch);
+        act.before[ch.id] = null;
+        target = ch; created = ch; ok++; break;
+      }
+      case 'rename_chapter':
+        if (!txt) { skip++; break; }
+        touch(act, target); target.title = txt; ok++; break;
+      default: skip++;
+    }
+  }
+  structs.forEach((s, id) => {
+    const ch = b.chapters.find(c => c.id === id);
+    const parts = [...s.head];
+    s.ps.forEach(p => { if (!p.del) parts.push(p.t); parts.push(...p.after); });
+    parts.push(...s.tail);
+    ch.text = parts.join('\n\n');
+  });
+  if (created) b.current = created.id;
+  if (ok) endAct(act);
+  return { ok, skip };
+}
+
+function onConsigne(res, chId) {
+  const { ok, skip } = applyOps(res.operations, chId);
+  const reply = String(res.reply || '').trim();
+  if (ok) { save(); renderAll(); }
+  let msg = reply;
+  if (ok) {
+    const s = plural(ok, 'modification', 'modifications') + (skip ? ` · ${skip} ignorée${skip > 1 ? 's' : ''}` : '');
+    msg = reply ? `${reply} (${s})` : s;
+  } else if (!reply) {
+    msg = 'Rien n’a été modifié : consigne non comprise.';
+  }
+  note(msg, { actions: ok ? [{ label: 'Annuler', fn: undo }] : [], ms: reply ? 12000 : 6000 });
+}
+
+/* ───────── Gemini ───────── */
+function buildSystem() {
+  const lvl = LEVELS[book().level].prompt;
+  return `Tu es le Scribe : l'assistant d'écriture vocal d'un romancier francophone. Tu reçois l'enregistrement audio de sa voix et tu réponds UNIQUEMENT par un objet JSON conforme au schéma fourni. Le mode (DICTÉE ou CONSIGNE) est indiqué à la fin du message.
+
+MODE DICTÉE — l'audio est du texte de roman à écrire, jamais une commande.
+- Écris dans "text" ce que dit l'auteur, en français correct. Ne réponds pas à ce qu'il dit, n'ajoute rien, n'invente rien, ne complète pas la suite.
+- Niveau d'intervention choisi par l'auteur — ${lvl}
+- Si l'auteur dicte la ponctuation à voix haute (« virgule », « point », « deux-points », « à la ligne », « nouveau paragraphe », « ouvre les guillemets », « tiret »), applique-la au lieu de l'écrire en toutes lettres.
+- Sépare les paragraphes par une ligne vide. Une réplique de dialogue = un paragraphe. Sauf indication contraire dans « Ton & style », les dialogues s'ouvrent par un tiret cadratin (—). Utilise la typographie française (guillemets « », espaces avant ; : ! ?, points de suspension …).
+- Respecte à la lettre l'orthographe des noms et mots du glossaire et des personnages.
+- "continues_previous" = true si le passage dicté prolonge directement la phrase ou le paragraphe inachevé qui termine le texte déjà écrit ; false s'il ouvre un nouveau paragraphe.
+- "operations" = [] et "reply" = null, SAUF : (a) audio vide, inaudible ou sans parole : "text" = "" et "reply" = une phrase courte ; (b) le texte dicté contredit nettement l'univers ou le texte déjà écrit (nom, âge, lieu, fait établi, chronologie) : mets quand même le texte, et signale la contradiction en une phrase dans "reply".
+
+MODE CONSIGNE — l'audio est une instruction adressée à toi.
+- "text" = "", "continues_previous" = false. Traduis la consigne en "operations", appliquées dans l'ordre. Types :
+  • "append" : ajoute "text" à la fin du chapitre en cours (nouveau paragraphe).
+  • "insert_after" : insère "text" après le paragraphe numéro "paragraph" (0 = tout au début).
+  • "replace" : remplace entièrement le paragraphe "paragraph" par "text".
+  • "delete" : supprime le paragraphe "paragraph".
+  • "bible" : ajoute "text" à la section "section" de l'univers (synopsis, style, personnages, lieux ou glossaire) quand l'auteur demande de noter ou de retenir une information sur son histoire.
+  • "new_chapter" : crée un chapitre intitulé "text" juste après le chapitre en cours ; les "append" suivants écrivent dedans.
+  • "rename_chapter" : renomme le chapitre en cours en "text".
+- Les numéros de paragraphe se rapportent à la numérotation du texte fourni, c'est-à-dire AVANT tes modifications, même si plusieurs opérations se suivent. Pour changer une partie d'un paragraphe, utilise "replace" avec le paragraphe entier réécrit. Si "text" contient plusieurs paragraphes, sépare-les par une ligne vide.
+- Ne touche à rien que l'auteur n'a pas demandé. Si la consigne est ambiguë ou impossible, ne fais aucune opération et pose UNE question courte dans "reply".
+- Quand l'auteur te demande d'écrire ou de proposer du texte, écris dans sa voix (voir « Ton & style ») et en cohérence avec l'univers.
+- Si l'auteur pose une question (rappel d'un fait, de ce qu'un personnage a dit ou fait…), réponds dans "reply" d'après l'univers et le texte fournis. Si l'information n'y figure pas, dis-le : n'invente jamais.
+- "reply" : 1 à 3 phrases, factuel. Signale toute contradiction entre la consigne et l'univers, mais exécute-la quand même.`;
+}
+
+function buildContext(mode) {
+  const b = book(), c = chap(), bi = b.bible;
+  const sec = (t, v) => (v && v.trim()) ? `## ${t}\n${v.trim()}\n\n` : '';
+  let s = `# Livre : ${b.title}\n\n`;
+  s += sec('Ton & style de l’auteur', bi.style) + sec('Synopsis', bi.synopsis) + sec('Personnages', bi.personnages) +
+       sec('Lieux', bi.lieux) + sec('Glossaire (orthographe à respecter)', bi.glossaire);
+  if (b.chapters.length > 1) {
+    s += '## Chapitres du livre\n' + b.chapters.map((x, i) =>
+      x.id === c.id ? `${i + 1}. ${x.title} (chapitre en cours)` : `${i + 1}. ${x.title}${x.summary.trim() ? ' — ' + x.summary.trim() : ''}`).join('\n') + '\n\n';
+  }
+  s += `# Chapitre en cours : ${c.title}\n\n`;
+  if (mode === 'dicter') {
+    const t = c.text.trim();
+    if (!t) s += '(chapitre vide : la dictée ouvre le chapitre)\n';
+    else {
+      let tail = t.length > 3500 ? t.slice(-3500) : t;
+      if (tail.length < t.length) tail = '…' + tail.slice(tail.indexOf(' ') + 1);
+      s += 'Fin du texte déjà écrit (pour la continuité) :\n<<<\n' + tail + '\n>>>\n';
+    }
+  } else {
+    const ps = splitParas(c.text);
+    if (!ps.length) s += '(chapitre vide)\n';
+    else {
+      const start = Math.max(0, ps.length - 80);
+      if (start) s += `(… ${start} paragraphes précédents non affichés)\n`;
+      s += 'Paragraphes numérotés :\n' + ps.slice(start).map((p, i) => `[${start + i + 1}] ${p}`).join('\n\n') + '\n';
+    }
+  }
+  return s;
+}
+
+function httpMsg(status, body) {
+  const m = (body && body.error && body.error.message) || '';
+  if (status === 400 && /API key/i.test(m)) return 'Clé API refusée. Vérifie-la dans Réglages.';
+  if (status === 401 || status === 403) return 'Clé API refusée ou accès non autorisé.';
+  if (status === 404) return 'Modèle introuvable : vérifie son nom dans Réglages.';
+  if (status === 429) return 'Quota atteint ou trop de requêtes. Réessaie dans un instant.';
+  if (status >= 500) return 'Gemini est indisponible pour le moment.';
+  return m || ('Erreur ' + status);
+}
+
+async function gemini({ system, parts, schema, temperature = 0.3, json = true, think = null }) {
+  const fail = msg => { const e = new Error(msg); e.userMsg = msg; return e; };
+  if (!S.apiKey.trim()) throw fail('Ajoute ta clé API Gemini dans Réglages.');
+  const model = (S.model || DEFAULT_MODEL).trim();
+  const gc = { temperature };
+  if (json) { gc.responseMimeType = 'application/json'; gc.responseSchema = schema; }
+  if (think !== null && /^gemini-2\.5-flash(?!-lite)/.test(model)) gc.thinkingConfig = { thinkingBudget: think };
+  const body = { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts }], generationConfig: gc };
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 150000);
+  let res;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': S.apiKey.trim() },
+      body: JSON.stringify(body), signal: ctl.signal
+    });
+  } catch (err) {
+    throw fail(err && err.name === 'AbortError' ? 'Délai dépassé.' : 'Pas de connexion à Gemini.');
+  } finally { clearTimeout(to); }
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) throw fail(httpMsg(res.status, data));
+  const cand = data && data.candidates && data.candidates[0];
+  const txt = ((cand && cand.content && cand.content.parts) || []).map(p => p.text || '').join('');
+  if (!txt) throw fail(data && data.promptFeedback && data.promptFeedback.blockReason
+    ? 'Contenu bloqué par Gemini (' + data.promptFeedback.blockReason + ').' : 'Réponse vide de Gemini.');
+  if (!json) return txt;
+  try { return JSON.parse(txt.replace(/^```(?:json)?\s*|\s*```$/g, '')); }
+  catch (_) { throw fail('Réponse illisible de Gemini.'); }
+}
+
+function blobToB64(blob) {
+  return new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(',')[1]);
+    r.onerror = () => ko(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function processTake(blob, mode) {
+  setState('busy');
+  const chId = chap().id;
+  try {
+    const data = await blobToB64(blob);
+    const res = await gemini({
+      system: buildSystem(),
+      parts: [
+        { text: buildContext(mode) },
+        { inline_data: { mime_type: 'audio/wav', data } },
+        { text: `MODE ${mode === 'dicter' ? 'DICTÉE' : 'CONSIGNE'} — traite l'enregistrement audio ci-dessus.` }
+      ],
+      schema: SCHEMA, temperature: mode === 'dicter' ? 0.2 : 0.5, think: mode === 'dicter' ? 0 : 512
+    });
+    lastTake = null; DB.del('pending').catch(() => {});
+    setState('idle');
+    mode === 'dicter' ? onDictation(res, chId) : onConsigne(res, chId);
+  } catch (e) {
+    setState('idle');
+    note((e.userMsg || 'Échec du traitement.') + ' Ta prise est gardée.', { sticky: true, actions: [{ label: 'Réessayer', fn: retry }, { label: 'Jeter', fn: discardTake }] });
+  }
+}
+async function retry() {
+  const p = lastTake || await DB.get('pending').catch(() => null);
+  if (p && p.blob) { lastTake = p; processTake(p.blob, p.mode); } else note('Rien à relancer.');
+}
+function discardTake() { lastTake = null; DB.del('pending').catch(() => {}); note('Prise supprimée.'); }
+
+/* ───────── Enregistrement (WAV 16 kHz mono) ───────── */
+const Rec = {
+  ctx: null, stream: null, node: null, src: null, chunks: [], active: false, level: 0, t0: 0,
+  async begin() {
+    // Le contexte audio est créé tout de suite, dans le geste de l'utilisateur (exigé par iOS/Safari).
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) { ctx.close().catch(() => {}); throw e; }
+    if (ctx.resume) await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const node = ctx.createScriptProcessor(4096, 1, 1);
+    this.chunks = []; this.level = 0;
+    node.onaudioprocess = e => {
+      if (!this.active) return;
+      const d = e.inputBuffer.getChannelData(0);
+      this.chunks.push(new Float32Array(d));
+      let sum = 0, k = 0;
+      for (let i = 0; i < d.length; i += 8) { sum += d[i] * d[i]; k++; }
+      this.level = Math.sqrt(sum / k);
+    };
+    src.connect(node); node.connect(ctx.destination);
+    Object.assign(this, { ctx, stream, node, src, active: true, t0: Date.now() });
+  },
+  end() {
+    this.active = false;
+    const sr = this.ctx.sampleRate;
+    try { this.src.disconnect(); this.node.disconnect(); } catch (_) {}
+    this.stream.getTracks().forEach(t => t.stop());
+    this.ctx.close().catch(() => {});
+    let len = 0; this.chunks.forEach(c => { len += c.length; });
+    const all = new Float32Array(len); let o = 0;
+    this.chunks.forEach(c => { all.set(c, o); o += c.length; });
+    this.chunks = [];
+    const pcm = downsample(all, sr, TARGET_SR);
+    return { blob: encodeWav(pcm, TARGET_SR), dur: pcm.length / TARGET_SR };
+  }
+};
+function downsample(buf, from, to) {
+  if (from === to) return buf;
+  const ratio = from / to, len = Math.floor(buf.length / ratio), out = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(buf.length, Math.floor((i + 1) * ratio));
+    let s = 0; for (let j = a; j < b; j++) s += buf[j];
+    out[i] = s / (b - a || 1);
+  }
+  return out;
+}
+function encodeWav(f32, sr) {
+  const n = f32.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, f32[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true); }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+/* ───────── Interface ───────── */
+const editor = $('#editor'), mic = $('#mic'), noteEl = $('#note');
+const ICON = {
+  idle: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
+  rec: '<svg width="28" height="28" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/></svg>',
+  busy: '<svg class="spin" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" stroke-opacity=".25"/><path d="M20 12a8 8 0 0 0-8-8"/></svg>'
+};
+let noteT, tickT, wl = null;
+
+function note(msg, { actions = [], sticky = false, ms = 6500 } = {}) {
+  hideNote();
+  // Une feuille ouverte masque le pied de page : la note s'affiche alors dans la feuille.
+  const open = document.querySelector('dialog[open]');
+  const el = open ? open.querySelector('.dnote') : noteEl;
+  el.innerHTML = '';
+  const sp = document.createElement('span'); sp.textContent = msg; sp.onclick = hideNote; el.append(sp);
+  actions.forEach(a => { const b = document.createElement('button'); b.textContent = a.label; b.onclick = () => { hideNote(); a.fn(); }; el.append(b); });
+  el.hidden = false;
+  if (!sticky) noteT = setTimeout(hideNote, ms);
+}
+function hideNote() { clearTimeout(noteT); noteEl.hidden = true; $$('.dnote').forEach(e => { e.hidden = true; }); }
+
+function updateHint(sec) {
+  const h = $('#hint');
+  if (state === 'rec') { const s = Math.floor(sec || 0); h.textContent = `● ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')} · touche pour terminer`; }
+  else if (state === 'busy') h.textContent = S.mode === 'dicter' ? 'Le scribe écrit…' : 'Le scribe réfléchit…';
+  else h.textContent = S.mode === 'dicter' ? 'Touche pour dicter' : 'Touche, puis donne ta consigne';
+}
+function setState(st) {
+  state = st; document.body.dataset.state = st;
+  mic.innerHTML = ICON[st]; mic.disabled = st === 'busy';
+  mic.setAttribute('aria-label', st === 'rec' ? 'Terminer l’enregistrement' : 'Enregistrer');
+  editor.readOnly = st === 'busy';
+  $$('#modes button').forEach(b => { b.disabled = st !== 'idle'; });
+  updateHint();
+}
+function updateWords() { $('#words').textContent = plural(words(chap().text), 'mot', 'mots'); }
+function updateUndo() { const l = H[book().id] || []; $('#btnUndo').disabled = !l.length; }
+function needsBackup() { return bookWords(book()) > 200 && Date.now() - S.lastExport > 7 * 864e5; }
+function renderMode() {
+  document.body.dataset.mode = S.mode;
+  $$('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
+  updateHint();
+}
+function renderEditor(keep) { const st = editor.scrollTop; editor.value = chap().text; editor.scrollTop = keep ? st : 0; }
+function renderAll() {
+  const keep = editor.dataset.ch === chap().id; editor.dataset.ch = chap().id;
+  renderEditor(keep);
+  $('#chTitle').textContent = chap().title;
+  updateWords(); updateUndo(); renderMode();
+  $('#backupDot').hidden = !needsBackup();
+  if ($('#dlgChapters').open) renderChapters();
+  if ($('#dlgBook').open) renderBook();
+}
+
+editor.addEventListener('input', () => { chap().text = editor.value; updateWords(); save(); });
+
+/* Micro */
+let recT0 = 0;
+async function startRec() {
+  if (!S.apiKey.trim()) { note('Ajoute d’abord ta clé API Gemini.', { sticky: true, actions: [{ label: 'Réglages', fn: () => openBook('reglages') }] }); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { note('Le micro n’est pas disponible ici (HTTPS requis).', { sticky: true }); return; }
+  hideNote();
+  try { await Rec.begin(); }
+  catch (e) { note(e && e.name === 'NotAllowedError' ? 'Accès au micro refusé. Autorise-le dans les réglages du navigateur.' : 'Impossible d’ouvrir le micro.', { sticky: true }); return; }
+  recMode = S.mode; recT0 = Date.now(); setState('rec'); lockScreen();
+  tickT = setInterval(() => {
+    const s = (Date.now() - recT0) / 1000;
+    mic.style.setProperty('--lvl', Math.min(1, Rec.level * 5).toFixed(2));
+    updateHint(s);
+    if (s >= MAX_SEC) stopRec(true);
+  }, 100);
+}
+async function stopRec(auto) {
+  if (state !== 'rec') return;
+  clearInterval(tickT); unlockScreen(); mic.style.removeProperty('--lvl');
+  const out = Rec.end();
+  if (out.dur < 0.7) { setState('idle'); note('Enregistrement trop court.'); return; }
+  lastTake = { blob: out.blob, mode: recMode, ts: Date.now() };
+  if (!DB.ls) DB.set('pending', lastTake).catch(() => {});
+  if (auto) note('Durée maximale atteinte : la prise part au scribe. Tu pourras continuer ensuite.');
+  await processTake(out.blob, recMode);
+}
+mic.addEventListener('click', () => { if (state === 'idle') startRec(); else if (state === 'rec') stopRec(); });
+async function lockScreen() { try { wl = await navigator.wakeLock.request('screen'); } catch (_) {} }
+function unlockScreen() { try { wl && wl.release(); } catch (_) {} wl = null; }
+
+$('#modes').addEventListener('click', e => {
+  const b = e.target.closest('button[data-mode]'); if (!b || state !== 'idle') return;
+  S.mode = b.dataset.mode; save(); renderMode();
+});
+$('#btnUndo').addEventListener('click', undo);
+
+/* Feuilles */
+function openSheet(d) { if (!d.open) d.showModal(); }
+$$('dialog.sheet').forEach(d => {
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+  d.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => d.close()));
+  d.addEventListener('close', () => { flush(); renderAll(); });
+});
+
+/* Chapitres */
+function renderChapters() {
+  const b = book(), ul = $('#chList'); ul.innerHTML = '';
+  b.chapters.forEach((c, i) => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.className = 'row' + (c.id === b.current ? ' on' : ''); btn.dataset.id = c.id;
+    btn.innerHTML = '<span class="n"></span><span class="t"></span><span class="w"></span>';
+    btn.children[0].textContent = i + 1; btn.children[1].textContent = c.title; btn.children[2].textContent = plural(words(c.text), 'mot', 'mots');
+    li.append(btn); ul.append(li);
+  });
+  $('#chSummary').value = chap().summary;
+}
+$('#btnChapters').addEventListener('click', () => { renderChapters(); openSheet($('#dlgChapters')); });
+$('#chList').addEventListener('click', e => {
+  const r = e.target.closest('.row'); if (!r) return;
+  book().current = r.dataset.id; save(); $('#dlgChapters').close();
+});
+$('#chNew').addEventListener('click', () => {
+  const b = book(), ch = newChapter('Chapitre ' + (b.chapters.length + 1));
+  b.chapters.push(ch); b.current = ch.id; save(); $('#dlgChapters').close();
+});
+$('#chSummary').addEventListener('input', e => { chap().summary = e.target.value; save(); });
+$('#chRename').addEventListener('click', () => {
+  const t = prompt('Titre du chapitre', chap().title);
+  if (t && t.trim()) { chap().title = t.trim(); save(); renderAll(); }
+});
+function moveCh(d) {
+  const b = book(), i = b.chapters.findIndex(c => c.id === b.current), j = i + d;
+  if (j < 0 || j >= b.chapters.length) return;
+  [b.chapters[i], b.chapters[j]] = [b.chapters[j], b.chapters[i]]; save(); renderAll();
+}
+$('#chUp').addEventListener('click', () => moveCh(-1));
+$('#chDown').addEventListener('click', () => moveCh(1));
+$('#chDelete').addEventListener('click', () => {
+  const b = book(), ch = chap();
+  if (!confirm(`Supprimer « ${ch.title} » (${plural(words(ch.text), 'mot', 'mots')}) ? Tu pourras annuler juste après.`)) return;
+  const act = beginAct(`suppression de « ${ch.title} »`);
+  touch(act, ch);
+  const i = b.chapters.indexOf(ch);
+  b.chapters.splice(i, 1);
+  if (!b.chapters.length) { const n = newChapter('Chapitre 1'); b.chapters.push(n); act.before[n.id] = null; }
+  b.current = b.chapters[Math.min(i, b.chapters.length - 1)].id;
+  endAct(act); save(); $('#dlgChapters').close();
+  note('Chapitre supprimé.', { actions: [{ label: 'Annuler', fn: undo }] });
+});
+$('#chSummarize').addEventListener('click', async () => {
+  const ch = chap();
+  if (words(ch.text) < 30) { note('Chapitre trop court pour être résumé.'); return; }
+  const btn = $('#chSummarize'); btn.disabled = true; btn.textContent = 'Résumé en cours…';
+  try {
+    const r = await gemini({
+      system: 'Tu résumes des chapitres de roman pour servir de mémoire de continuité à un assistant d’écriture. Réponds uniquement par le résumé, en français, 80 à 150 mots, au présent : événements, personnages présents, lieux, informations nouvelles, promesses narratives. Ni titre, ni liste, ni jugement.',
+      parts: [{ text: ch.text }], json: false, temperature: 0.2, think: 0
+    });
+    ch.summary = r.trim(); $('#chSummary').value = ch.summary; save();
+  } catch (e) { note(e.userMsg || 'Échec du résumé.', { sticky: true }); }
+  btn.disabled = false; btn.textContent = 'Résumer avec l\'IA';
+});
+
+/* Univers & réglages */
+const FIELDS = { fStyle: 'style', fSynopsis: 'synopsis', fPersonnages: 'personnages', fLieux: 'lieux', fGlossaire: 'glossaire' };
+function openBook(tab) { renderBook(); setTab(tab || 'univers'); openSheet($('#dlgBook')); }
+function setTab(t) {
+  $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  $('#paneUnivers').hidden = t !== 'univers'; $('#paneReglages').hidden = t !== 'reglages';
+}
+function renderBook() {
+  const b = book(), sel = $('#bookSel'); sel.innerHTML = '';
+  S.books.forEach(x => { const o = document.createElement('option'); o.value = x.id; o.textContent = x.title; o.selected = x.id === b.id; sel.append(o); });
+  $('#bookStats').textContent = `${plural(bookWords(b), 'mot', 'mots')} · ${plural(b.chapters.length, 'chapitre', 'chapitres')}`;
+  $('#fTitle').value = b.title;
+  Object.entries(FIELDS).forEach(([id, k]) => { $('#' + id).value = b.bible[k]; });
+  $$('#levels button').forEach(x => x.classList.toggle('on', x.dataset.level === b.level));
+  $('#levelDesc').textContent = LEVELS[b.level].desc;
+  $('#sKey').value = S.apiKey; $('#sModel').value = S.model;
+  $('#lastExport').textContent = S.lastExport
+    ? 'Dernière sauvegarde exportée : ' + new Date(S.lastExport).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) + '.'
+    : 'Aucune sauvegarde exportée pour l’instant.';
+}
+$('#btnBook').addEventListener('click', () => openBook('univers'));
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
+$('#bookSel').addEventListener('change', e => { S.bookId = e.target.value; save(); renderAll(); renderBook(); });
+$('#bookNew').addEventListener('click', () => {
+  const t = prompt('Titre du nouveau livre', 'Nouveau roman'); if (!t || !t.trim()) return;
+  const b = newBook(t.trim()); S.books.push(b); S.bookId = b.id; save(); renderAll(); renderBook();
+});
+$('#bookDelete').addEventListener('click', () => {
+  const b = book();
+  if (!confirm(`Supprimer définitivement « ${b.title} » (${plural(bookWords(b), 'mot', 'mots')}) ? Cette action ne peut pas être annulée. Pense à exporter d'abord.`)) return;
+  S.books = S.books.filter(x => x.id !== b.id); delete H[b.id]; saveHist();
+  if (!S.books.length) S.books.push(newBook());
+  S.bookId = S.books[0].id; save(); renderAll(); renderBook();
+});
+$('#fTitle').addEventListener('input', e => { book().title = e.target.value || 'Sans titre'; save(); });
+Object.entries(FIELDS).forEach(([id, k]) => $('#' + id).addEventListener('input', e => { book().bible[k] = e.target.value; save(); }));
+$('#levels').addEventListener('click', e => {
+  const b = e.target.closest('button[data-level]'); if (!b) return;
+  book().level = b.dataset.level; save(); renderBook();
+});
+$('#sKey').addEventListener('input', e => { S.apiKey = e.target.value.trim(); save(); });
+$('#sModel').addEventListener('input', e => { S.model = e.target.value.trim() || DEFAULT_MODEL; save(); });
+$('#keyShow').addEventListener('click', () => {
+  const i = $('#sKey'), show = i.type === 'password'; i.type = show ? 'text' : 'password'; $('#keyShow').textContent = show ? 'Masquer' : 'Afficher';
+});
+$('#keyTest').addEventListener('click', async () => {
+  const b = $('#keyTest'); b.disabled = true; b.textContent = 'Test…';
+  try { await gemini({ system: 'Réponds uniquement par le mot OK.', parts: [{ text: 'Test' }], json: false, temperature: 0, think: 0 }); note('Connexion réussie (' + S.model + ').'); }
+  catch (e) { note(e.userMsg || 'Échec de la connexion.', { sticky: true }); }
+  b.disabled = false; b.textContent = 'Tester la connexion';
+});
+
+/* Export / import */
+function download(name, mime, content) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name;
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const slug = s => (s || 'livre').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'livre';
+const stamp = () => new Date().toISOString().slice(0, 10);
+function markExported() { S.lastExport = Date.now(); save(); renderBook(); $('#backupDot').hidden = true; }
+$('#exMd').addEventListener('click', () => {
+  const b = book();
+  download(`${slug(b.title)}-${stamp()}.md`, 'text/markdown;charset=utf-8',
+    `# ${b.title}\n\n` + b.chapters.map(c => `## ${c.title}\n\n${c.text.trim()}\n`).join('\n'));
+  markExported();
+});
+$('#exJson').addEventListener('click', () => {
+  const st = clone(S); st.apiKey = '';
+  download(`scribe-sauvegarde-${stamp()}.json`, 'application/json', JSON.stringify({ app: 'scribe', v: 1, exported: Date.now(), state: st }));
+  markExported();
+});
+$('#exCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(chap().text); note('Chapitre copié.'); } catch (_) { note('Copie impossible ici.'); }
+});
+$('#imJson').addEventListener('click', () => $('#imFile').click());
+$('#imFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text());
+    if (j.app !== 'scribe' || !j.state || !Array.isArray(j.state.books) || !j.state.books.length) throw new Error();
+    if (!confirm('Remplacer tout le contenu actuel par cette sauvegarde ?')) return;
+    const keep = { apiKey: S.apiKey, model: S.model };
+    S = j.state; S.apiKey = keep.apiKey; S.model = keep.model; H = {}; saveHist(); normalize(); flush(); renderAll(); renderBook();
+    note('Sauvegarde restaurée.');
+  } catch (_) { note('Fichier de sauvegarde invalide.', { sticky: true }); }
+});
+let deferredInstall;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; $('#btnInstall').hidden = false; });
+$('#btnInstall').addEventListener('click', async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice.catch(() => {}); deferredInstall = null; $('#btnInstall').hidden = true; });
+
+/* Cycle de vie */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { if (state === 'rec') stopRec(); flush(); }
+});
+window.addEventListener('pagehide', flush);
+
+/* ───────── Démarrage ───────── */
+(async function init() {
+  try { await DB.open(); } catch (_) { DB.ls = true; }
+  const st = await DB.get('state').catch(() => null);
+  H = (await DB.get('hist').catch(() => null)) || {};
+  S = st && Array.isArray(st.books) && st.books.length ? st : defaultState();
+  normalize();
+  setState('idle'); renderAll();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+  const p = await DB.get('pending').catch(() => null);
+  if (p && p.blob) { lastTake = p; note('Une prise n’avait pas été traitée.', { sticky: true, actions: [{ label: 'Traiter', fn: retry }, { label: 'Jeter', fn: discardTake }] }); }
+  else if (needsBackup()) note('Pense à exporter une sauvegarde de ton livre.', { actions: [{ label: 'Exporter', fn: () => openBook('reglages') }], ms: 9000 });
+  // Accès de test (console) — sans effet pour l'utilisateur
+  window.__scribe = { get S() { return S; }, applyOps, onDictation, undo, joinDictation, buildContext, buildSystem, splitParas, book, chap };
+})();
+})();
+</script>
+</body>
+</html>
