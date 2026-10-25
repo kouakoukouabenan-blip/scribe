@@ -130,6 +130,8 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0 4px}
 .newbk i{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;color:var(--ink)}
 .newbk:active{color:var(--ink)}
 .inline[hidden]{display:none}
+#ghost{position:absolute;left:18px;right:18px;bottom:100%;margin-bottom:6px;z-index:4;padding:9px 14px;border-radius:14px;background:color-mix(in srgb,var(--bg) 92%,transparent);font:italic 400 17px/1.45 var(--serif);color:var(--muted);max-height:4.6em;overflow:hidden;pointer-events:none}
+#ghost[hidden]{display:none}
 a.btn{display:inline-block;text-decoration:none}
 .how{margin-top:12px;font-size:13.5px;line-height:1.55;color:var(--muted)}
 .how summary{cursor:pointer;color:var(--ink);font:500 14px var(--sans);padding:6px 0;list-style:none}
@@ -175,6 +177,7 @@ a.btn{display:inline-block;text-decoration:none}
 
   <footer>
     <div id="note" hidden></div>
+    <div id="ghost" hidden aria-live="polite"></div>
     <div id="hint"></div>
     <div class="seg" id="modes">
       <button data-mode="dicter" class="on">Dicter</button>
@@ -300,11 +303,12 @@ a.btn{display:inline-block;text-decoration:none}
     <p class="small">« Auto » suit le réglage de ton téléphone.</p>
 
     <label class="f">Dictée</label>
-    <div class="seg full" id="lives">
-      <button data-live="1">À chaque pause</button>
-      <button data-live="0">À la fin</button>
+    <div class="seg full" id="dicts">
+      <button data-dict="direct">Direct</button>
+      <button data-dict="pause">À chaque pause</button>
+      <button data-dict="end">À la fin</button>
     </div>
-    <p class="small">« À chaque pause » écrit ton texte pendant que tu parles, dès que tu marques un temps d'arrêt d'environ une seconde. « À la fin » envoie toute la prise quand tu touches stop.</p>
+    <p class="small" id="dictDesc"></p>
 
     <hr>
     <label class="f">Sauvegarde</label>
@@ -329,6 +333,12 @@ a.btn{display:inline-block;text-decoration:none}
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 const MAX_SEC = 360;           // une prise ≈ 11 Mo en WAV 16 kHz : sous la limite d'envoi inline
 const TARGET_SR = 16000;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const DICT_DESC = {
+  direct: 'Tes mots s’affichent en direct pendant que tu parles (reconnaissance vocale du téléphone), puis Gemini corrige chaque phrase : ponctuation, noms propres, glossaire. Mode à l’essai.',
+  pause: 'Ton texte s’écrit pendant que tu parles, à chaque pause d’environ une seconde : Gemini écoute ta voix et écrit.',
+  end: 'Toute la prise est envoyée à Gemini quand tu touches stop.'
+};
 const SECTIONS = ['synopsis', 'style', 'personnages', 'lieux', 'glossaire'];
 const LEVELS = {
   fidele: {
@@ -434,7 +444,8 @@ function defaultState() {
 }
 function normalize() {
   S.theme = ['auto', 'light', 'dark'].includes(S.theme) ? S.theme : 'auto';
-  S.live = S.live !== false;
+  if (!['direct', 'pause', 'end'].includes(S.dict)) S.dict = S.live === false ? 'end' : 'pause';
+  delete S.live;
   S.model = S.model || DEFAULT_MODEL; S.mode = S.mode || 'dicter'; S.apiKey = S.apiKey || ''; S.lastExport = S.lastExport || 0;
   S.books.forEach(b => {
     b.bible = b.bible || {}; SECTIONS.forEach(k => { b.bible[k] = b.bible[k] || ''; });
@@ -531,8 +542,53 @@ function applyDictation(seg, res) {
   touch(ses.act, ch);
   ch.text = joinDictation(ch.text, add, !!res.continues_previous);
   ses.words += words(add); recWords += words(add);
-  save();
+  save(); showCh(ch);
+}
+function showCh(ch) {
   if (chap().id === ch.id) { editor.value = ch.text; editor.scrollTop = editor.scrollHeight; updateWords(); }
+}
+
+/* Mode Direct : le texte brut s'affiche aussitôt (au bout du chapitre), puis chaque phrase est remplacée par sa version corrigée. */
+const tailStr = (prefix, list) => list.length ? ((prefix && !/\s$/.test(prefix)) ? ' ' : '') + list.join(' ') : '';
+function splitTail(ch) {   // retrouve le texte déjà corrigé (préfixe) sous les phrases encore brutes ; null si le texte a été modifié
+  const list = ch.raws || [];
+  if (!list.length) return { prefix: ch.text };
+  const j = list.join(' ');
+  for (const sep of [' ', '']) {
+    const t = sep + j;
+    if (ch.text.endsWith(t)) {
+      const prefix = ch.text.slice(0, ch.text.length - t.length);
+      if ((sep === ' ') === !!(prefix && !/\s$/.test(prefix))) return { prefix };
+    }
+  }
+  return null;
+}
+function onRaw(raw) {
+  raw = String(raw || '').trim(); if (!raw) return;
+  const ch = book().chapters.find(c => c.id === recCh) || chap();
+  ses = ses || { act: beginAct('dictée'), words: 0, replies: [] };
+  touch(ses.act, ch);
+  const prefix = ch.text;
+  ch.raws = ch.raws || [];
+  ch.text = prefix + tailStr(prefix, [raw]);
+  ch.raws.push(raw); recSent++; recWords += words(raw);
+  save(); showCh(ch);
+  enqueue({ raw, mode: 'dicter', ts: Date.now(), bookId: recBook, chId: ch.id });
+}
+function applyDirect(seg, res) {
+  const b = book(), ch = b.chapters.find(c => c.id === seg.chId) || chap();
+  const list = ch.raws || [], tail = splitTail(ch);
+  const first = list[0] === seg.raw;
+  if (!first || !tail) { const i = list.indexOf(seg.raw); if (i >= 0) list.splice(i, 1); return; }   // texte modifié à la main : on n'y touche pas
+  const add = String(res.text || '').trim() || seg.raw;   // jamais de mots perdus
+  ses = ses || { act: beginAct('dictée'), words: 0, replies: [] };
+  touch(ses.act, ch);
+  if (res.reply) ses.replies.push(String(res.reply).trim());
+  list.shift(); ch.raws = list;
+  const prefix = joinDictation(tail.prefix, add, !!res.continues_previous);
+  ch.text = prefix + tailStr(prefix, list);
+  ses.words += words(add);
+  save(); showCh(ch);
 }
 function finishSession(quiet) {
   if (!ses) return;
@@ -630,7 +686,7 @@ function onConsigne(res, chId) {
 /* ───────── Gemini ───────── */
 function buildSystem() {
   const lvl = LEVELS[book().level].prompt;
-  return `Tu es le Scribe : l'assistant d'écriture vocal d'un romancier francophone. Tu reçois l'enregistrement audio de sa voix et tu réponds UNIQUEMENT par un objet JSON conforme au schéma fourni. Le mode (DICTÉE ou CONSIGNE) est indiqué à la fin du message.
+  return `Tu es le Scribe : l'assistant d'écriture vocal d'un romancier francophone. Tu reçois l'enregistrement audio de sa voix (ou, parfois, sa transcription automatique brute) et tu réponds UNIQUEMENT par un objet JSON conforme au schéma fourni. Le mode (DICTÉE ou CONSIGNE) est indiqué à la fin du message.
 
 MODE DICTÉE — l'audio est du texte de roman à écrire, jamais une commande.
 - Écris dans "text" ce que dit l'auteur, en français correct. Ne réponds pas à ce qu'il dit, n'ajoute rien, n'invente rien, ne complète pas la suite.
@@ -639,6 +695,7 @@ MODE DICTÉE — l'audio est du texte de roman à écrire, jamais une commande.
 - Sépare les paragraphes par une ligne vide. Une réplique de dialogue = un paragraphe. Sauf indication contraire dans « Ton & style », les dialogues s'ouvrent par un tiret cadratin (—). Utilise la typographie française (guillemets « », espaces avant ; : ! ?, points de suspension …).
 - Respecte à la lettre l'orthographe des noms et mots du glossaire et des personnages.
 - "continues_previous" = true si le passage dicté prolonge directement la phrase ou le paragraphe inachevé qui termine le texte déjà écrit ; false s'il ouvre un nouveau paragraphe.
+- Si l'entrée est une TRANSCRIPTION BRUTE (du texte, pas de l'audio) : elle sort d'une reconnaissance vocale automatique, sans ponctuation fiable, avec des noms propres, des mots étrangers ou agni souvent déformés. Corrige-les d'après le glossaire, les personnages et les lieux ; ajoute ponctuation, majuscules et paragraphes ; ne change ni le sens ni les faits, et n'ajoute rien.
 - L'enregistrement est souvent un fragment : l'auteur marque des pauses et s'arrête parfois au milieu d'une phrase. Si l'audio finit sur une phrase manifestement inachevée, ne la clos pas (aucun point final inventé) : le fragment suivant la continuera. Si le texte déjà écrit se termine par une phrase inachevée, continue-la sans majuscule et mets "continues_previous" à true.
 - "operations" = [] et "reply" = null, SAUF : (a) audio vide, inaudible ou sans parole : "text" = "" et "reply" = une phrase courte ; (b) le texte dicté contredit nettement l'univers ou le texte déjà écrit (nom, âge, lieu, fait établi, chronologie) : mets quand même le texte, et signale la contradiction en une phrase dans "reply".
 
@@ -785,7 +842,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 function persistPending() {
   if (DB.ls) return;
   if (!Q.items.length) { DB.del('pending').catch(() => {}); return; }
-  DB.set('pending', { segs: Q.items.map(s => ({ blob: s.blob, mode: s.mode, ts: s.ts, bookId: s.bookId, chId: s.chId })) }).catch(() => {});
+  DB.set('pending', { segs: Q.items.map(s => ({ blob: s.blob, raw: s.raw, mode: s.mode, ts: s.ts, bookId: s.bookId, chId: s.chId })) }).catch(() => {});
 }
 function enqueue(seg) { Q.items.push(seg); persistPending(); pump(); }
 function ensureBook(seg) {
@@ -793,13 +850,15 @@ function ensureBook(seg) {
 }
 async function callSegment(seg) {
   ensureBook(seg);
-  const data = await blobToB64(seg.blob);
+  const media = seg.raw !== undefined
+    ? { text: `TRANSCRIPTION BRUTE (reconnaissance vocale automatique, à corriger) :\n<<<\n${seg.raw}\n>>>` }
+    : { inline_data: { mime_type: 'audio/wav', data: await blobToB64(seg.blob) } };
   return gemini({
     system: buildSystem(),
     parts: [
       { text: buildContext(seg.mode, seg.chId) },
-      { inline_data: { mime_type: 'audio/wav', data } },
-      { text: `MODE ${seg.mode === 'dicter' ? 'DICTÉE' : 'CONSIGNE'} — traite l'enregistrement audio ci-dessus.` }
+      media,
+      { text: `MODE ${seg.mode === 'dicter' ? 'DICTÉE' : 'CONSIGNE'} — traite ${seg.raw !== undefined ? 'la transcription brute' : 'l\'enregistrement audio'} ci-dessus.` }
     ],
     schema: SCHEMA, temperature: seg.mode === 'dicter' ? 0.2 : 0.5, think: seg.mode === 'dicter' ? 0 : 512
   });
@@ -815,7 +874,9 @@ async function pump() {
     try {
       const res = await callSegment(seg);
       Q.items.shift(); persistPending();
-      if (seg.mode === 'dicter') applyDictation(seg, res); else onConsigne(res, seg.chId);
+      if (seg.mode !== 'dicter') onConsigne(res, seg.chId);
+      else if (seg.raw !== undefined) applyDirect(seg, res);
+      else applyDictation(seg, res);
       updateHint();
     } catch (e) {
       if (e.status === 429 && (seg.tries = (seg.tries || 0) + 1) <= 3) { await sleep(Q.retryMs * seg.tries); continue; }
@@ -827,15 +888,17 @@ async function pump() {
   }
   Q.busy = false; updateHint(); maybeFinish();
 }
+function clearRaws() { S.books.forEach(b => b.chapters.forEach(c => { if (c.raws && c.raws.length) c.raws = []; })); }
 function maybeFinish() {
-  if (Rec.active || Q.busy || Q.items.length) return;
+  if (Rec.active || Direct.active || Q.busy || Q.items.length) return;
+  clearRaws();
   finishSession();
   if (state === 'busy') setState('idle');
 }
 function restorePending(p) {
   if (!p) return;
   const list = Array.isArray(p.segs) ? p.segs : (p.blob ? [p] : []);
-  list.forEach(s => { if (s && s.blob) Q.items.push({ blob: s.blob, mode: s.mode || 'dicter', ts: s.ts, bookId: s.bookId, chId: s.chId }); });
+  list.forEach(s => { if (s && (s.blob || s.raw)) Q.items.push({ blob: s.blob, raw: s.raw, mode: s.mode || 'dicter', ts: s.ts, bookId: s.bookId, chId: s.chId }); });
 }
 async function retry() {
   if (!Q.items.length) restorePending(await DB.get('pending').catch(() => null));
@@ -918,6 +981,50 @@ function encodeWav(f32, sr) {
   return new Blob([buf], { type: 'audio/wav' });
 }
 
+/* ───────── Reconnaissance vocale du navigateur (mode Direct) ───────── */
+const Direct = {
+  rec: null, active: false, consumed: 0, interim: '', prevFinal: '', restartT: 0, lang: 'fr-FR',
+  onFinal: null, onInterim: null, onFatal: null, onDone: null,
+  start(onFinal, onInterim, onFatal) {
+    Object.assign(this, { active: true, interim: '', onFinal, onInterim, onFatal, onDone: null });
+    this.spawn();
+  },
+  spawn() {
+    const r = new SR(); this.rec = r; this.consumed = 0; this.prevFinal = '';
+    r.lang = this.lang; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    r.onresult = e => {
+      let interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const res = e.results[i];
+        let t = ((res[0] && res[0].transcript) || '').trim();
+        if (res.isFinal) {
+          if (i < this.consumed) continue;
+          this.consumed = i + 1;
+          // Certains Android renvoient chaque résultat final en cumulé : on ne garde que le nouveau morceau.
+          if (this.prevFinal.length >= 3 && t.toLowerCase().startsWith(this.prevFinal.toLowerCase())) t = t.slice(this.prevFinal.length).trim();
+          else this.prevFinal = t;
+          if (t) this.onFinal(t);
+        } else interim += (interim ? ' ' : '') + t;
+      }
+      this.interim = interim; this.onInterim(interim);
+    };
+    r.onerror = e => {
+      const fatal = ['not-allowed', 'service-not-allowed', 'audio-capture', 'network', 'language-not-supported'];
+      if (fatal.includes(e.error)) { this.active = false; this.onFatal(e.error); }
+    };
+    r.onend = () => {
+      if (this.interim) { const t = this.interim; this.interim = ''; this.onInterim(''); this.onFinal(t); }   // phrase en cours, non finalisée
+      if (this.active) { clearTimeout(this.restartT); this.restartT = setTimeout(() => { if (this.active) this.spawn(); }, 200); }
+      else if (this.onDone) { const f = this.onDone; this.onDone = null; f(); }
+    };
+    try { r.start(); } catch (_) { this.active = false; this.onFatal('start'); }
+  },
+  stop(done) {
+    this.active = false; this.onDone = done; clearTimeout(this.restartT);
+    try { this.rec.stop(); } catch (_) { this.onDone = null; done(); }
+  }
+};
+
 /* ───────── Interface ───────── */
 const editor = $('#editor'), mic = $('#mic'), noteEl = $('#note');
 const ICON = {
@@ -945,12 +1052,14 @@ function updateHint(sec) {
   const h = $('#hint');
   if (state === 'rec') {
     const s = Math.floor(sec === undefined ? recElapsed : sec);
-    const extra = !recLive ? '' : (Q.busy || Q.items.length ? ' · écriture…' : (recWords ? ' · ' + plural(recWords, 'mot', 'mots') : ''));
+    const extra = !recLive ? '' : recDirect ? (recWords ? ' · ' + plural(recWords, 'mot', 'mots') : '') : (Q.busy || Q.items.length ? ' · écriture…' : (recWords ? ' · ' + plural(recWords, 'mot', 'mots') : ''));
     h.textContent = `● ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}${extra} · touche pour terminer`;
   }
   else if (state === 'busy') h.textContent = S.mode === 'dicter' ? 'Le scribe écrit…' : 'Le scribe réfléchit…';
   else if (!S.apiKey.trim()) h.textContent = 'Ajoute ta clé API dans Réglages pour commencer';
-  else h.textContent = S.mode === 'dicter' ? (S.live !== false ? 'Touche et parle : le texte s’écrit à chaque pause' : 'Touche pour dicter') : 'Touche, puis donne ta consigne';
+  else h.textContent = S.mode !== 'dicter' ? 'Touche, puis donne ta consigne'
+    : S.dict === 'direct' ? 'Touche et parle : tes mots s’écrivent en direct'
+    : S.dict === 'pause' ? 'Touche et parle : le texte s’écrit à chaque pause' : 'Touche pour dicter';
 }
 function setState(st) {
   state = st; document.body.dataset.state = st;
@@ -984,19 +1093,45 @@ function renderAll() {
 editor.addEventListener('input', () => { chap().text = editor.value; updateWords(); save(); });
 
 /* Micro */
-let recT0 = 0, recLive = false, recBook = null, recCh = null, recSent = 0;
+let recT0 = 0, recLive = false, recDirect = false, recBook = null, recCh = null, recSent = 0, directLevel = 0, directErr = '';
+const DIRECT_ERR = {
+  network: 'La reconnaissance vocale a besoin d’Internet. Vérifie ta connexion.',
+  'not-allowed': 'Accès au micro refusé. Autorise-le dans les réglages du navigateur.',
+  'service-not-allowed': 'La reconnaissance vocale est bloquée sur ce téléphone. Utilise « À chaque pause ».',
+  'audio-capture': 'Micro introuvable ou déjà utilisé par une autre application.',
+  'language-not-supported': 'Le français n’est pas pris en charge par la reconnaissance vocale de ce téléphone.',
+  start: 'Impossible de démarrer la reconnaissance vocale. Utilise « À chaque pause ».'
+};
+function onInterim(t) {
+  const g = $('#ghost'); g.textContent = t; g.hidden = !t; directLevel = t ? 0.6 : 0;
+}
+function finishDirect() {
+  $('#ghost').hidden = true;
+  if (Q.failed) { finishSession(true); setState('idle'); failNote('Des phrases n’ont pas pu être corrigées.'); }
+  else if (Q.busy || Q.items.length) setState('busy');
+  else { setState('idle'); if (!recSent && !directErr) note('Je n’ai rien entendu : réessaie plus près du micro.'); else maybeFinish(); }
+  if (directErr) { note(directErr, { sticky: true }); directErr = ''; }
+}
 async function startRec() {
   if (!S.apiKey.trim()) { note('Ajoute d’abord ta clé API Gemini.', { sticky: true, actions: [{ label: 'Réglages', fn: () => openBook('reglages') }] }); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { note('Le micro n’est pas disponible ici (HTTPS requis).', { sticky: true }); return; }
   hideNote();
-  const live = S.mode === 'dicter' && S.live !== false;
-  recLive = live; recBook = S.bookId; recCh = chap().id; recSent = 0; recWords = 0; recElapsed = 0;
-  try { await Rec.begin(live, blob => { recSent++; enqueue({ blob, mode: 'dicter', ts: Date.now(), bookId: recBook, chId: recCh }); }); }
-  catch (e) { note(e && e.name === 'NotAllowedError' ? 'Accès au micro refusé. Autorise-le dans les réglages du navigateur.' : 'Impossible d’ouvrir le micro.', { sticky: true }); return; }
+  const direct = S.mode === 'dicter' && S.dict === 'direct';
+  if (direct && !SR) { note('La reconnaissance vocale n’est pas disponible sur ce navigateur : choisis « À chaque pause » dans Réglages.', { sticky: true }); return; }
+  const live = S.mode === 'dicter' && S.dict !== 'end';
+  recLive = live; recDirect = direct; recBook = S.bookId; recCh = chap().id; recSent = 0; recWords = 0; recElapsed = 0; directLevel = 0; directErr = '';
+  if (direct) {
+    // Démarré tout de suite, dans le geste de l'utilisateur (exigé par Chrome).
+    Direct.start(onRaw, onInterim, err => { directErr = DIRECT_ERR[err] || 'La reconnaissance vocale s’est arrêtée.'; if (state === 'rec') stopRec(); });
+  } else {
+    try { await Rec.begin(live, blob => { recSent++; enqueue({ blob, mode: 'dicter', ts: Date.now(), bookId: recBook, chId: recCh }); }); }
+    catch (e) { note(e && e.name === 'NotAllowedError' ? 'Accès au micro refusé. Autorise-le dans les réglages du navigateur.' : 'Impossible d’ouvrir le micro.', { sticky: true }); return; }
+  }
   recMode = S.mode; recT0 = Date.now(); setState('rec'); lockScreen();
   tickT = setInterval(() => {
     const s = recElapsed = (Date.now() - recT0) / 1000;
-    mic.style.setProperty('--lvl', Math.min(1, Rec.level * 5).toFixed(2));
+    directLevel *= 0.9;
+    mic.style.setProperty('--lvl', Math.min(1, direct ? directLevel : Rec.level * 5).toFixed(2));
     updateHint(s);
     if (s >= (live ? 3600 : MAX_SEC)) stopRec(true);
   }, 100);
@@ -1004,6 +1139,12 @@ async function startRec() {
 async function stopRec(auto) {
   if (state !== 'rec') return;
   clearInterval(tickT); unlockScreen(); mic.style.removeProperty('--lvl');
+  if (recDirect) {
+    setState('busy');
+    let done = false; const fin = () => { if (done) return; done = true; finishDirect(); };
+    Direct.stop(fin); setTimeout(fin, 2500);   // filet de sécurité si onend n'arrive jamais
+    return;
+  }
   const out = Rec.end();
   if (out.dur >= 0.7 && out.speech >= (recLive ? 0.4 : 0.3)) { recSent++; enqueue({ blob: out.blob, mode: recMode, ts: Date.now(), bookId: recBook, chId: recCh }); }
   if (auto) note('Durée maximale atteinte : la prise part au scribe. Tu pourras continuer ensuite.');
@@ -1160,7 +1301,9 @@ function renderBook() {
   $('#levelDesc').textContent = LEVELS[b.level].desc;
   $('#sKey').value = S.apiKey; $('#sModel').value = S.model;
   $$('#themes button').forEach(x => x.classList.toggle('on', x.dataset.theme === S.theme));
-  $$('#lives button').forEach(x => x.classList.toggle('on', (x.dataset.live === '1') === S.live));
+  $$('#dicts button').forEach(x => x.classList.toggle('on', x.dataset.dict === S.dict));
+  $('#dicts [data-dict="direct"]').disabled = !SR;
+  $('#dictDesc').textContent = (!SR ? 'Le mode Direct n’est pas disponible sur ce navigateur. ' : '') + DICT_DESC[S.dict];
   $('#lastExport').textContent = S.lastExport
     ? 'Dernière sauvegarde exportée : ' + new Date(S.lastExport).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) + '.'
     : 'Aucune sauvegarde exportée pour l’instant.';
@@ -1192,9 +1335,9 @@ $('#themes').addEventListener('click', e => {
   const b = e.target.closest('button[data-theme]'); if (!b) return;
   S.theme = b.dataset.theme; applyTheme(); save(); renderBook();
 });
-$('#lives').addEventListener('click', e => {
-  const b = e.target.closest('button[data-live]'); if (!b) return;
-  S.live = b.dataset.live === '1'; save(); renderBook(); updateHint();
+$('#dicts').addEventListener('click', e => {
+  const b = e.target.closest('button[data-dict]'); if (!b || b.disabled) return;
+  S.dict = b.dataset.dict; save(); renderBook(); updateHint();
 });
 $('#sKey').addEventListener('input', e => { S.apiKey = e.target.value.trim(); updateHint(); save(); });
 $('#sModel').addEventListener('input', e => { S.model = e.target.value.trim() || DEFAULT_MODEL; save(); });
@@ -1274,7 +1417,7 @@ window.addEventListener('pagehide', flush);
   if (Q.items.length) { Q.failed = true; note('Une prise n’avait pas été traitée.', { sticky: true, actions: [{ label: 'Traiter', fn: retry }, { label: 'Jeter', fn: discardTake }] }); }
   else if (needsBackup()) note('Pense à exporter une sauvegarde de ton livre.', { actions: [{ label: 'Exporter', fn: () => openBook('reglages') }], ms: 9000 });
   // Accès de test (console) — sans effet pour l'utilisateur
-  window.__scribe = { get S() { return S; }, Rec, Q, switchBook, newBook, applyOps, applyDictation, undo, joinDictation, buildContext, buildSystem, splitParas, book, chap };
+  window.__scribe = { get S() { return S; }, Rec, Q, Direct, switchBook, newBook, applyOps, applyDictation, undo, joinDictation, buildContext, buildSystem, splitParas, book, chap };
 })();
 })();
 </script>
